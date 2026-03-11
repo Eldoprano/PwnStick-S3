@@ -65,22 +65,22 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v26</title>
+<title>PwnDongle v27</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; }
+body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
 .tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
 #crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
-#crop-canvas { display:block; margin:0 auto; max-width:100%; }
+#crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
@@ -89,14 +89,14 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </style>
 </head>
 <body>
-<img id="gif-source" style="display:none">
+<img id="gif-src" style="display:none">
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);e.p()">WIN</button>
-        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);e.p()">CTRL</button>
-        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);e.p()">ALT</button>
+        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
+        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
+        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
@@ -137,23 +137,23 @@ p.ontouchstart=e=>{isD=true;moved=false;lX=e.touches[0].clientX;lY=e.touches[0].
 p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
-let gifEl=document.getElementById('gif-source'),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
+let gEl=document.getElementById('gif-src'),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
     let r=new FileReader(); r.onload=ev=>{
-        gifEl.onload=()=>{
+        gEl.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/gifEl.width,80/gifEl.height);oX=0;oY=0;rotation=0;
-            if(isGif) anim(); else drw();
-        }; gifEl.src=ev.target.result;
+            scale=Math.max(160/gEl.width,80/gEl.height);oX=0;oY=0;rotation=0;
+            if(!window.animating){ window.animating=true; play(); }
+        }; gEl.src=ev.target.result;
     }; r.readAsDataURL(f);
 };
-function anim(){ if(isGif){ drw(); requestAnimationFrame(anim); } }
-function drw(){
+function play(){
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
     ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(gifEl,-gifEl.width*scale/2,-gifEl.height*scale/2,gifEl.width*scale,gifEl.height*scale);ctx.restore();
+    ctx.drawImage(gEl,-gEl.width*scale/2,-gEl.height*scale/2,gEl.width*scale,gEl.height*scale);ctx.restore();
+    requestAnimationFrame(play);
 }
 function z(v){scale+=v;} function rot(){rotation=(rotation+90)%360;}
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
@@ -187,7 +187,7 @@ function upl(){
             ws.send(getB()); f++;
             document.getElementById('status').innerText='Recording: '+f+'/3';
             if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='Loop Active!'; upBtn.disabled=false; }
-        },1000);
+        },800);
     }else{
         wsS('I:img');
         let b=getB(); ws.send(b);
@@ -285,8 +285,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
-                if (!gif_mode) show_img = true; // Only show static images immediately
-                else if (gif_count > 1) show_img = true; // Start loop after 2+ frames
+                if (!gif_mode) show_img = true;
+                else if (gif_count > 1) show_img = true;
             }
         }
     }
@@ -305,33 +305,43 @@ void updateDisplay() {
         }
     } else {
         int clients = WiFi.softAPgetStationNum();
-        if (clients > 0 && !user_on_site) { user_on_site = true; }
-        if (clients == 0) { user_on_site = false; }
-        static int drops[160]; static bool init = false;
-        if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
-        for(int i=0; i<160*80; i++) {
-            uint16_t c = screen_buf[i];
-            if (c == SWAP(C_RED)) screen_buf[i] = SWAP(C_BLACK);
-            else if (c != SWAP(C_BLACK)) {
-                uint16_t ns = SWAP(c);
-                uint16_t r = (ns >> 11) & 0x1F; uint16_t g = (ns >> 5) & 0x3F; uint16_t b = ns & 0x1F;
-                if(g > 2) g -= 2; else g = 0; if(r > 4) r -= 4; else r = 0; if(b > 4) b -= 4; else b = 0;
-                screen_buf[i] = SWAP((r << 11) | (g << 5) | b);
+        if (clients > 0 && !user_on_site) {
+            for(int i=0; i<160*80; i++) screen_buf[i] = SWAP(C_BLACK);
+            int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
+            for(int y=0; y<qr_size; y++) {
+                for(int x=0; x<qr_size; x++) {
+                    uint16_t c = qr_data[y * qr_size + x] ? C_BLACK : C_WHITE;
+                    for(int sy=0; sy<sc; sy++) for(int sx=0; sx<sc; sx++) screen_buf[(oy + y*sc + sy)*160 + (ox + x*sc + sx)] = SWAP(c);
+                }
             }
-        }
-        for(int x=0; x<160; x+=6) {
-            if(drops[x] >= 0 && drops[x] < 80) {
-                screen_buf[drops[x] * 160 + x] = SWAP(C_GREEN);
-                if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(C_GREEN);
+        } else {
+            if (clients == 0) { user_on_site = false; }
+            static int drops[160]; static bool init = false;
+            if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
+            for(int i=0; i<160*80; i++) {
+                uint16_t c = screen_buf[i];
+                if (c == SWAP(C_RED)) screen_buf[i] = SWAP(C_BLACK);
+                else if (c != SWAP(C_BLACK)) {
+                    uint16_t ns = SWAP(c);
+                    uint16_t r = (ns >> 11) & 0x1F; uint16_t g = (ns >> 5) & 0x3F; uint16_t b = ns & 0x1F;
+                    if(g > 2) g -= 2; else g = 0; if(r > 4) r -= 4; else r = 0; if(b > 4) b -= 4; else b = 0;
+                    screen_buf[i] = SWAP((r << 11) | (g << 5) | b);
+                }
             }
-            drops[x] += 1; if(drops[x] >= 80) drops[x] = random(-40, 0);
-        }
-        char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
-        drawString(2, 2, info, C_WHITE, 1);
-        if (millis() - lastKeyTime < 2000 && lastKey.length() > 0) {
-            int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
-            int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
-            drawString(tx, ty, lastKey.c_str(), C_GREEN, sc);
+            for(int x=0; x<160; x+=6) {
+                if(drops[x] >= 0 && drops[x] < 80) {
+                    screen_buf[drops[x] * 160 + x] = SWAP(C_GREEN);
+                    if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(C_GREEN);
+                }
+                drops[x] += 1; if(drops[x] >= 80) drops[x] = random(-40, 0);
+            }
+            char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
+            drawString(2, 2, info, C_WHITE, 1);
+            if (millis() - lastKeyTime < 2000 && lastKey.length() > 0) {
+                int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
+                int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
+                drawString(tx, ty, lastKey.c_str(), C_GREEN, sc);
+            }
         }
     }
     if (showCursorFrames > 0) {
