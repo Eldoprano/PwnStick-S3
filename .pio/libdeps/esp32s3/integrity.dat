@@ -1,0 +1,4 @@
+fastled/FastLED@^3.6.0
+mathieucarbou/AsyncTCP @ ^3.3.2
+bodmer/TFT_eSPI@^2.5.43
+mathieucarbou/ESPAsyncWebServer @ ^3.6.0
