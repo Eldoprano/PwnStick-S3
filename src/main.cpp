@@ -14,7 +14,6 @@
 #include <Fonts/glcdfont.c>
 #include "qr_code.h"
 
-// Hardware Pins
 #define LED_DI_PIN     40
 #define NUM_LEDS       1
 #define PIN_NUM_MOSI   3
@@ -24,7 +23,6 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Colors
 #define C_GREEN      0x07E0
 #define C_DARKGREEN  0x03E0
 #define C_DIM        0x01E0
@@ -44,13 +42,14 @@ DNSServer dnsServer;
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
+static uint16_t custom_img_buf[160 * 80];
 
-// GIF Engine (5 frames max to fit RAM)
+// GIF Engine (5 frames max)
 static uint16_t* gif_frames[5] = {NULL, NULL, NULL, NULL, NULL};
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
-static bool gif_active = false;
+static bool gif_mode = false;
 
 const char* ssid = "PwnDongle";
 String targetOS = "win";
@@ -63,7 +62,6 @@ int cursorX = 80, cursorY = 40;
 int showCursorFrames = 0;
 unsigned long qrStartTime = 0;
 bool qrActive = false;
-int lastClientCount = 0;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
 
@@ -71,12 +69,12 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v19</title>
+<title>PwnDongle v20</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
-.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
+.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; font-size:14px; }
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
@@ -117,14 +115,15 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
         <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
-        <button onclick="uploadImg()">UPLOAD</button>
+        <button id="b-up" onclick="uploadImg()">UPLOAD IMAGE</button>
+        <button id="b-gif" onclick="uploadGif()" style="display:none;border-color:#f0f;color:#f0f">UPLOAD AS GIF</button>
     </div>
     <div class="history" id="ig-hist"></div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', air=false, history=[];
+let os='win', air=false, history=[], isGif=false;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -137,19 +136,8 @@ document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
 document.getElementById('win-tools').style.display=(os=='win'?'flex':'none');
 document.getElementById('lin-tools').style.display=(os=='lin'?'flex':'none');
 }
-function mD(m,el){
-el.dataset.t=Date.now();
-el.dataset.h=setTimeout(()=>{
-el.dataset.h=0; el.classList.toggle('toggled');
-wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
-},400);
-}
-function mU(m,el){
-if(el.dataset.h){
-clearTimeout(el.dataset.h); el.dataset.h=0;
-wsS('P:'+m); // Send click
-}
-}
+function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
+function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
 let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
@@ -165,9 +153,11 @@ p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY
 let img=new Image(),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
+    isGif = (f.type === 'image/gif');
     let r=new FileReader(); r.onload=ev=>{
         img.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
+            document.getElementById('b-gif').style.display=isGif?'block':'none';
             scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;drw();
         }; img.src=ev.target.result;
     }; r.readAsDataURL(f);
@@ -191,18 +181,31 @@ cvs.ontouchmove=e=>{
     }else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw();}
     e.preventDefault();
 };
-function uploadImg(){
-    document.getElementById('status').innerText='Sending...';
+function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
         let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
         let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
         b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF;
     }
+    return b;
+}
+function uploadImg(){
+    document.getElementById('status').innerText='Sending Image...';
+    let b=getB(); ws.send(b);
     let thumb=cvs.toDataURL('image/jpeg',0.5);
     if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-    ws.send(b);
-    setTimeout(()=>document.getElementById('status').innerText='Ready!',1000);
+    setTimeout(()=>document.getElementById('status').innerText='Success!',1000);
+}
+function uploadGif(){
+    document.getElementById('status').innerText='Capturing Animation...';
+    wsS('I:gif'); // Start GIF mode
+    let frames = 0;
+    let iv = setInterval(()=>{
+        drw(); ws.send(getB()); frames++;
+        document.getElementById('status').innerText='Capturing: '+(frames*20)+'%';
+        if(frames >= 5){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; }
+    },200);
 }
 function uHist(){
     let h=document.getElementById('ig-hist'); h.innerHTML='';
@@ -252,7 +255,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
         else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
         else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
-        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
+        else if (msg.startsWith("B:")) { Keyboard.press(KEY_BACKSPACE); delay(10); Keyboard.release(KEY_BACKSPACE); setLastKey("DEL"); }
         else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
         else if (msg.startsWith("M:")) {
             int comma = msg.indexOf(',');
@@ -279,20 +282,20 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-        else if (msg.startsWith("I:clear")) { show_img = false; gif_active = false; }
+        else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; }
+        else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
     } else if (info->opcode == WS_BINARY) {
         if (info->index == 0) binaryOffset = 0;
         if (binaryOffset + len <= 25600) {
-            memcpy(((uint8_t*)screen_buf) + binaryOffset, data, len);
+            memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                show_img = true;
-                if(gif_active && gif_count < 5) {
-                    if(gif_frames[gif_count]) free(gif_frames[gif_count]);
-                    gif_frames[gif_count] = (uint16_t*)malloc(25600);
-                    if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], screen_buf, 25600);
+                if(gif_mode && gif_count < 5) {
+                    if(!gif_frames[gif_count]) gif_frames[gif_count] = (uint16_t*)malloc(25600);
+                    if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
+                show_img = true;
             }
         }
     }
@@ -322,14 +325,15 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
 
 void updateDisplay() {
     if (show_img) {
-        if(gif_active && gif_count > 0) {
+        if(gif_mode && gif_count > 0) {
             if(millis() - last_gif_ms > 200) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_frames[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
             }
+        } else {
+            memcpy(screen_buf, custom_img_buf, 25600);
         }
-        // Buffer is already updated by binary WS or GIF loop
     } else {
         int clients = WiFi.softAPgetStationNum();
         if (clients > 0 && !user_on_site && !qrActive) { qrActive = true; qrStartTime = millis(); }
