@@ -24,13 +24,16 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Colors
-#define C_GREEN      0xE007
-#define C_DARKGREEN  0x4002
-#define C_DIM        0x2001
-#define C_RED        0x00F8
-#define C_WHITE      0xFFFF
-#define C_BLACK      0x0000
+// Little-Endian RGB565 (Math-friendly)
+#define RGB_GREEN      0x07E0
+#define RGB_DARKGREEN  0x03E0
+#define RGB_DIM        0x01E0
+#define RGB_RED        0xF800
+#define RGB_WHITE      0xFFFF
+#define RGB_BLACK      0x0000
+
+// Helper to swap bytes for the display (ST7735 expects Big Endian)
+inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 
 CRGB leds[NUM_LEDS];
 USBHIDKeyboard Keyboard;
@@ -58,7 +61,6 @@ int showCursorFrames = 0;
 // QR Code
 unsigned long qrStartTime = 0;
 bool qrActive = false;
-bool qrWasActive = false;
 int lastClientCount = 0;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
@@ -67,9 +69,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v15</title>
+<title>PwnDongle v16</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
@@ -81,16 +82,17 @@ button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margi
 button:active { background:#0f0; color:#000; }
 button.toggled { background:#0f0; color:#000; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:10px; }
-textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; margin-top:5px; }
+textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; font-weight:bold; }
-#crop-container { width:100%; height:250px; background:#111; margin-top:10px; border:1px solid #333; position:relative; overflow:hidden; }
-#crop-img { max-width:100%; display:block; }
+#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; min-height:100px; }
+#crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
+#progress-container { width:100%; background:#111; border:1px solid #0f0; height:10px; margin-top:5px; display:none; }
+#progress-bar { width:0%; height:100%; background:#0f0; transition: width 0.1s; }
 #debug-console { width:100%; height:100px; background:#050505; color:#f00; font-size:10px; text-align:left; overflow-y:auto; border:1px solid #333; margin-top:10px; white-space:pre-wrap; }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body>
 <div class="tabs">
@@ -136,26 +138,21 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 
 <div id="c-ig" class="content">
-    <div class="file-btn">
-        <button>SELECT IMAGE</button>
-        <input type="file" id="img-f" accept="image/*">
-    </div>
+    <div class="file-btn"><button>SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
-    <div id="crop-container"><img id="crop-img"></div>
-    <div id="ig-controls" style="display:none;">
-        <div class="row">
-            <button onclick="cropper.rotate(-90)">ROT L</button>
-            <button onclick="cropper.rotate(90)">ROT R</button>
-        </div>
-        <button onclick="uploadImg()">SEND TO DONGLE</button>
+    <div id="progress-container"><div id="progress-bar"></div></div>
+    <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
+    <div id="ig-controls" style="display:none;margin-top:10px">
+        <div class="row"><button onclick="z(-0.1)">- ZOOM</button><button onclick="z(0.1)">+ ZOOM</button><button onclick="rot()">ROT 90</button></div>
+        <button onclick="uploadImg()">UPLOAD TO DONGLE</button>
     </div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR SCREEN</button>
-    <div id="debug-console">Console initialized...</div>
+    <div id="debug-console">Console ready.</div>
 </div>
 
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', cropper, air=false;
+let os='win', air=false;
 function dbg(m){const c=document.getElementById('debug-console');c.innerText+='\n'+m;c.scrollTop=c.scrollHeight;}
 window.onerror=(m,s,l,c,e)=>dbg('ERR: '+m+' at '+l);
 
@@ -163,8 +160,7 @@ function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
 document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
-el.classList.add('active');
-document.getElementById('c-'+t).classList.add('active');
+el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
 }
 function uOS(){
 document.getElementById('b-win').className=(os=='win'?'toggled':'');
@@ -176,8 +172,7 @@ function mD(m){
 let el=document.getElementById('m-'+m);
 el.dataset.t=Date.now();
 el.dataset.h=setTimeout(()=>{
-el.dataset.h=0;
-el.classList.toggle('toggled');
+el.dataset.h=0; el.classList.toggle('toggled');
 wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
 },400);
 }
@@ -190,11 +185,8 @@ if(Date.now()-el.dataset.t<400)wsS('P:'+m);
 }
 let ta=document.getElementById('ta');
 ta.addEventListener('input',e=>{
-if(e.inputType==='insertFromPaste' || ta.value.length > 1){
-wsS('V:'+ta.value); ta.value='';
-} else {
-let c=ta.value.slice(-1); ta.value=''; if(c)wsS('K:'+c);
-}
+if(e.inputType==='insertFromPaste' || ta.value.length > 1){ wsS('V:'+ta.value); ta.value=''; }
+else { let c=ta.value.slice(-1); ta.value=''; if(c)wsS('K:'+c); }
 });
 ta.addEventListener('keydown',e=>{
 if(e.key==='Enter'){e.preventDefault();wsS('E:1');}
@@ -217,45 +209,61 @@ DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')togA();}).c
 }else togA();
 }
 function togA(){ air=!air; let b=document.getElementById('b-air'); b.innerText='GYRO MOUSE: '+(air?'ON':'OFF'); b.className=air?'toggled':'';}
-window.addEventListener('deviceorientation',e=>{
-if(air){ let x=Math.round((e.gamma||0)/2), y=Math.round(((e.beta||0)-45)/2); if(x||y)wsS('M:'+x+','+y); }
-});
+window.addEventListener('deviceorientation',e=>{ if(air){ let x=Math.round((e.gamma||0)/2), y=Math.round(((e.beta||0)-45)/2); if(x||y)wsS('M:'+x+','+y); } });
 
-document.getElementById('img-f').addEventListener('change', function(e) {
+// Native Image Editor
+let img = new Image(), scale=1, rotation=0, oX=0, oY=0, cvs=document.getElementById('crop-canvas'), ctx=cvs.getContext('2d');
+document.getElementById('img-f').addEventListener('change', e=>{
     let f=e.target.files[0]; if(!f)return;
-    document.getElementById('status').innerText='Loading JS...';
-    try {
-        let r=new FileReader();
-        r.onload=ev=>{
-            dbg('File read, starting cropper');
-            let i=document.getElementById('crop-img');
-            i.src=ev.target.result;
-            document.getElementById('crop-container').style.display='block';
+    let r=new FileReader();
+    r.onload=ev=>{
+        img.onload=()=>{
+            dbg('Image loaded: '+img.width+'x'+img.height);
             document.getElementById('ig-controls').style.display='block';
-            if(cropper)cropper.destroy();
-            cropper=new Cropper(i,{aspectRatio:2,viewMode:1,guides:false,background:false,dragMode:'move',autoCropArea:1});
-            document.getElementById('status').innerText='Ready';
+            scale = Math.max(160/img.width, 80/img.height);
+            oX=0; oY=0; rotation=0; drw();
         };
-        r.readAsDataURL(f);
-    } catch(err) { dbg('Load ERR: '+err); }
+        img.src=ev.target.result;
+    };
+    r.readAsDataURL(f);
 });
+function drw(){
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
+    ctx.save(); ctx.translate(80+oX, 40+oY); ctx.rotate(rotation*Math.PI/180);
+    ctx.drawImage(img, -img.width*scale/2, -img.height*scale/2, img.width*scale, img.height*scale);
+    ctx.restore();
+}
+function z(v){ scale += v; if(scale<0.01)scale=0.01; drw(); }
+function rot(){ rotation = (rotation+90)%360; drw(); }
+// Drag
+let cD=false, cX=0, cY=0;
+cvs.addEventListener('mousedown',e=>{cD=true;cX=e.clientX;cY=e.clientY;});
+document.addEventListener('mouseup',()=>cD=false);
+cvs.addEventListener('mousemove',e=>{if(cD){oX+=e.clientX-cX;oY+=e.clientY-cY;cX=e.clientX;cY=e.clientY;drw();}});
+cvs.addEventListener('touchstart',e=>{cD=true;cX=e.touches[0].clientX;cY=e.touches[0].clientY;e.preventDefault();},{passive:false});
+cvs.addEventListener('touchmove',e=>{if(cD){oX+=e.touches[0].clientX-cX;oY+=e.touches[0].clientY-cY;cX=e.touches[0].clientX;cY=e.touches[0].clientY;drw();e.preventDefault();}},{passive:false});
 
 function uploadImg(){
-if(!cropper)return;
-document.getElementById('status').innerText='Converting...';
-try {
-    let canvas=cropper.getCroppedCanvas({width:160,height:80});
-    let d=canvas.getContext('2d').getImageData(0,0,160,80).data;
+    document.getElementById('status').innerText='Uploading...';
+    document.getElementById('progress-container').style.display='block';
+    let data=ctx.getImageData(0,0,160,80).data;
     let b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
-        let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
+        let r=data[j*4], g=data[j*4+1], bl=data[j*4+2];
         let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
         b[j*2]=rgb>>8; b[j*2+1]=rgb&0xFF;
     }
-    document.getElementById('status').innerText='Sending...';
-    ws.send(b);
-    setTimeout(()=>document.getElementById('status').innerText='Uploaded!',1000);
-} catch(err) { dbg('Upload ERR: '+err); }
+    // Simulate progress bar since WebSocket send is atomic
+    let p=0;
+    let iv = setInterval(()=>{
+        p+=10; document.getElementById('progress-bar').style.width=p+'%';
+        if(p>=100){
+            clearInterval(iv);
+            ws.send(b);
+            document.getElementById('status').innerText='Success!';
+            setTimeout(()=>{document.getElementById('progress-container').style.display='none';},1000);
+        }
+    },50);
 }
 ws.onopen=()=>wsS('U:1');
 </script>
@@ -315,10 +323,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             } else if (msg.startsWith("H:")) {
                 int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
                 uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(50); Keyboard.write(0); }
+                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(100); Keyboard.write(0); }
             } else if (msg.startsWith("P:")) {
                 String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
+                Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
             } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
             else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
             else if (msg.startsWith("I:clear")) { show_img = false; }
@@ -337,7 +345,7 @@ void drawChar(int x, int y, char c, uint16_t color, int scale) {
                 for (int sx = 0; sx < scale; sx++) {
                     for (int sy = 0; sy < scale; sy++) {
                         int px = x + i * scale + sx; int py = y + j * scale + sy;
-                        if (px >= 0 && px < 160 && py >= 0 && py < 80) screen_buf[py * 160 + px] = color;
+                        if (px >= 0 && px < 160 && py >= 0 && py < 80) screen_buf[py * 160 + px] = SWAP(color);
                     }
                 }
             }
@@ -355,47 +363,47 @@ void updateDisplay() {
         memcpy(screen_buf, custom_img_buf, 25600);
     } else {
         int clients = WiFi.softAPgetStationNum();
-        if (clients > 0 && !user_on_site && !qrActive && !qrWasActive) { qrActive = true; qrStartTime = millis(); }
-        if (clients == 0) { user_on_site = false; qrActive = false; qrWasActive = false; }
+        if (clients > 0 && !user_on_site && !qrActive) { qrActive = true; qrStartTime = millis(); }
+        if (clients == 0) { user_on_site = false; qrActive = false; }
 
         if (qrActive) {
-            for(int i=0; i<160*80; i++) screen_buf[i] = C_BLACK;
+            for(int i=0; i<160*80; i++) screen_buf[i] = SWAP(RGB_BLACK);
             int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
             for(int y=0; y<qr_size; y++) {
                 for(int x=0; x<qr_size; x++) {
-                    uint16_t c = qr_data[y * qr_size + x] ? C_BLACK : C_WHITE;
-                    for(int sy=0; sy<sc; sy++) for(int sx=0; sx<sc; sx++) screen_buf[(oy + y*sc + sy)*160 + (ox + x*sc + sx)] = c;
+                    uint16_t c = qr_data[y * qr_size + x] ? RGB_BLACK : RGB_WHITE;
+                    for(int sy=0; sy<sc; sy++) for(int sx=0; sx<sc; sx++) screen_buf[(oy + y*sc + sy)*160 + (ox + x*sc + sx)] = SWAP(c);
                 }
             }
         } else {
-            if (qrWasActive) { for(int i=0; i<160*80; i++) screen_buf[i] = C_BLACK; qrWasActive = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-40, 0); init = true; }
             
             for(int i=0; i<160*80; i++) {
                 uint16_t c = screen_buf[i];
-                if (c == C_RED) screen_buf[i] = C_BLACK;
-                else if (c != C_BLACK) {
-                    uint16_t r = (c >> 11) & 0x1F; uint16_t g = (c >> 5) & 0x3F; uint16_t b = c & 0x1F;
-                    if(g > 2) g -= 2; else g = 0;
-                    screen_buf[i] = (g << 5);
+                if (c == SWAP(RGB_RED)) screen_buf[i] = SWAP(RGB_BLACK);
+                else if (c != SWAP(RGB_BLACK)) {
+                    uint16_t ns = SWAP(c);
+                    uint16_t r = (ns >> 11) & 0x1F; uint16_t g = (ns >> 5) & 0x3F; uint16_t b = ns & 0x1F;
+                    if(g > 2) g -= 2; else g = 0; if(r > 4) r -= 4; else r = 0; if(b > 4) b -= 4; else b = 0;
+                    screen_buf[i] = SWAP((r << 11) | (g << 5) | b);
                 }
             }
             
             for(int x=0; x<160; x+=6) {
                 if(drops[x] >= 0 && drops[x] < 80) {
-                    screen_buf[drops[x] * 160 + x] = C_GREEN;
-                    if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = C_GREEN;
+                    screen_buf[drops[x] * 160 + x] = SWAP(RGB_GREEN);
+                    if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(RGB_GREEN);
                 }
                 drops[x] += 1;
                 if(drops[x] >= 80) drops[x] = random(-20, 0);
             }
             
             char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
-            drawString(2, 2, info, C_WHITE, 1);
+            drawString(2, 2, info, RGB_WHITE, 1);
             unsigned long age = millis() - lastKeyTime;
             if (age < 2000 && lastKey.length() > 0) {
-                uint16_t kc = (age > 1000) ? C_DARKGREEN : C_WHITE;
+                uint16_t kc = (age > 1000) ? RGB_DARKGREEN : RGB_WHITE;
                 int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
                 int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
                 drawString(tx, ty, lastKey.c_str(), kc, sc);
@@ -404,7 +412,7 @@ void updateDisplay() {
     }
 
     if (showCursorFrames > 0) {
-        for(int y=0; y<4; y++) for(int x=0; x<4; x++) screen_buf[(cursorY + y)*160 + (cursorX + x)] = C_RED;
+        for(int y=0; y<4; y++) for(int x=0; x<4; x++) screen_buf[(cursorY + y)*160 + (cursorX + x)] = SWAP(RGB_RED);
         showCursorFrames--;
     }
     esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, 160, 80, screen_buf);
