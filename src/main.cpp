@@ -14,7 +14,6 @@
 #include <Fonts/glcdfont.c>
 #include "qr_code.h"
 
-// Hardware Pins
 #define LED_DI_PIN     40
 #define NUM_LEDS       1
 #define PIN_NUM_MOSI   3
@@ -24,7 +23,6 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Little-Endian RGB565 (Swapped for the driver)
 #define RGB_GREEN      0x07E0
 #define RGB_DARKGREEN  0x03E0
 #define RGB_DIM        0x01E0
@@ -32,7 +30,6 @@
 #define RGB_WHITE      0xFFFF
 #define RGB_BLACK      0x0000
 
-// Helper to swap bytes for the display (ST7735 expects Big Endian)
 inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 
 CRGB leds[NUM_LEDS];
@@ -54,11 +51,8 @@ unsigned long lastKeyTime = 0;
 bool show_img = false;
 bool user_on_site = false;
 
-// Mouse cursor
 int cursorX = 80, cursorY = 40;
 int showCursorFrames = 0;
-
-// QR Code
 unsigned long qrStartTime = 0;
 bool qrActive = false;
 int lastClientCount = 0;
@@ -69,7 +63,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle Ultimate</title>
+<title>PwnDongle v17</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -78,82 +72,50 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; transition: background 0.1s; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; margin-top:5px; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; font-weight:bold; }
-#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; min-height:100px; }
+#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
 #crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#progress-container { width:100%; background:#111; border:1px solid #0f0; height:10px; margin-top:5px; display:none; }
-#progress-bar { width:0%; height:100%; background:#0f0; transition: width 0.1s; }
 .history { display:flex; gap:10px; overflow-x:auto; padding:10px 0; border-top:1px solid #222; margin-top:10px; }
 .hist-item { width:60px; height:30px; border:1px solid #0f0; flex-shrink:0; cursor:pointer; background-size:cover; }
 </style>
 </head>
 <body>
-<div class="tabs">
-<div class="tab active" onclick="sT('kb',this)">KEYBOARD</div>
-<div class="tab" onclick="sT('ms',this)">MOUSE</div>
-<div class="tab" onclick="sT('ig',this)">SCREEN</div>
-</div>
-
+<div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
-    <div class="row">
-        <button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button>
-        <button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button>
-    </div>
-    <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button>
-    </div>
-    <textarea id="ta" placeholder="Type or Paste here..."></textarea>
-    <div class="row" style="margin-top:10px">
-        <button onclick="wsS('A:term')">TERM</button>
-        <button onclick="wsS('A:calc')">CALC</button>
-    </div>
-    <div id="win-tools" class="row">
-        <button onclick="wsS('A:cad')" style="color:#f00;border-color:#f00">C-A-D</button>
-        <button onclick="wsS('A:lock')">LOCK</button>
-    </div>
-    <div id="lin-tools" class="row" style="display:none;">
-        <button onclick="wsS('A:reisub')" style="color:#f00;border-color:#f00">REBOOT</button>
-        <button onclick="wsS('A:reisuo')" style="color:#f00;border-color:#f00">OFF</button>
-    </div>
-    <button onclick="wsS('A:rick')">RICKROLL PC</button>
+    <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
+    <div class="row" style="margin-top:10px"><button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button><button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button><button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button></div>
+    <textarea id="ta" placeholder="Type or Paste..."></textarea>
+    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
+    <div id="win-tools" class="row"><button onclick="wsS('A:cad')" style="color:#f00;border-color:#f00">C-A-D</button><button onclick="wsS('A:lock')">LOCK</button></div>
+    <div id="lin-tools" class="row" style="display:none;"><button onclick="wsS('A:reisub')" style="color:#f00;border-color:#f00">REBOOT</button><button onclick="wsS('A:reisuo')" style="color:#f00;border-color:#f00">OFF</button></div>
+    <button onclick="wsS('A:rick')">RICKROLL</button>
 </div>
-
 <div id="c-ms" class="content">
-    <button id="b-air" onclick="tAir()">GYRO MOUSE: OFF</button>
-    <div id="pad">TRACKPAD</div>
-    <div class="row" style="margin-top:10px;">
-        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');event.preventDefault()" ontouchend="wsS('U:l');event.preventDefault()">LEFT</button>
-        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');event.preventDefault()" ontouchend="wsS('U:m');event.preventDefault()">MID</button>
-        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');event.preventDefault()" ontouchend="wsS('U:r');event.preventDefault()">RIGHT</button>
-    </div>
+    <button id="b-air" onclick="tAir()">GYRO: OFF</button><div id="pad">TRACKPAD</div>
+    <div class="row"><button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');e.p()">L</button><button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');e.p()">M</button><button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');e.p()">R</button></div>
 </div>
-
 <div id="c-ig" class="content">
-    <div class="file-btn"><button>SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button>SELECT IMAGE / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
-    <div id="progress-container"><div id="progress-bar"></div></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
-        <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT 90</button></div>
-        <button onclick="uploadImg()">UPLOAD TO DONGLE</button>
+        <button id="b-gif" onclick="togGif()" style="display:none;">PLAY GIF</button>
+        <button onclick="uploadImg()">SEND TO DONGLE</button>
     </div>
     <div class="history" id="ig-hist"></div>
-    <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR SCREEN</button>
+    <button onclick="stopGif();wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
 </div>
-
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', air=false, history=[];
+let os='win', air=false, history=[], gifFrames=[], gifIv=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -166,117 +128,59 @@ document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
 document.getElementById('win-tools').style.display=(os=='win'?'flex':'none');
 document.getElementById('lin-tools').style.display=(os=='lin'?'flex':'none');
 }
-function mD(m,el){
-el.dataset.t=Date.now();
-el.dataset.h=setTimeout(()=>{
-el.dataset.h=0; el.classList.toggle('toggled');
-wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
-},400);
-}
-function mU(m,el){
-if(el.dataset.h){
-clearTimeout(el.dataset.h); el.dataset.h=0;
-if(Date.now()-el.dataset.t<400)wsS('P:'+m);
-}
-}
+function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
+function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; if(Date.now()-el.dataset.t<400)wsS('P:'+m); } }
 let ta=document.getElementById('ta');
 ta.addEventListener('input',e=>{
-if(e.inputType==='insertFromPaste' || ta.value.length > 1){ wsS('V:'+ta.value); ta.value=''; }
-else { let c=ta.value.slice(-1); ta.value=''; if(c)wsS('K:'+c); }
+if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}
+else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);}
 });
-ta.addEventListener('keydown',e=>{
-if(e.key==='Enter'){e.preventDefault();wsS('E:1');}
-if(e.key==='Backspace'){e.preventDefault();wsS('B:1');}
-if(e.key==='Tab'){e.preventDefault();wsS('T:1');}
-});
-
-// Trackpad
-let p=document.getElementById('pad'), lX=0, lY=0, isD=false, moved=false, tapT=0, fingers=0;
-p.addEventListener('mousedown',e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();fingers=1;});
-document.addEventListener('mouseup',()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;});
-p.addEventListener('mousemove',e=>{if(isD){let dx=e.clientX-lX,dy=e.clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+dx+','+dy);lX=e.clientX;lY=e.clientY;}});
-p.addEventListener('touchstart',e=>{isD=true;moved=false;fingers=e.touches.length;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();},{passive:false});
-p.addEventListener('touchend',e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(fingers>1?'r':'l'));isD=false;e.preventDefault();},{passive:false});
-p.addEventListener('touchmove',e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();},{passive:false});
-
-function tAir(){
-if(!air && typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
-DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')togA();}).catch(console.error);
-}else togA();
-}
-function togA(){ air=!air; let b=document.getElementById('b-air'); b.innerText='GYRO MOUSE: '+(air?'ON':'OFF'); b.className=air?'toggled':'';}
-window.addEventListener('deviceorientation',e=>{ if(air){ let x=Math.round((e.gamma||0)/2), y=Math.round(((e.beta||0)-45)/2); if(x||y)wsS('M:'+x+','+y); } });
-
-// Native Image Editor
-let img = new Image(), scale=1, rotation=0, oX=0, oY=0, cvs=document.getElementById('crop-canvas'), ctx=cvs.getContext('2d');
-document.getElementById('img-f').addEventListener('change', e=>{
+// Touchpad
+let p=document.getElementById('pad'),lX=0,lY=0,isD=false,moved=false,tapT=0,fingers=0;
+p.onmousedown=e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();fingers=1;};
+document.onmouseup=()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;};
+p.onmousemove=e=>{if(isD){let dx=e.clientX-lX,dy=e.clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+dx+','+dy);lX=e.clientX;lY=e.clientY;}};
+p.ontouchstart=e=>{isD=true;moved=false;fingers=e.touches.length;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
+p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(fingers>1?'r':'l'));isD=false;e.preventDefault();};
+p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
+// Image logic
+let img=new Image(),scale=1,rot=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
+document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
-    let r=new FileReader();
-    r.onload=ev=>{
+    let r=new FileReader(); r.onload=ev=>{
         img.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale = Math.max(160/img.width, 80/img.height);
-            oX=0; oY=0; rotation=0; drw();
-        };
-        img.src=ev.target.result;
-    };
-    r.readAsDataURL(f);
-});
+            scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rot=0;drw();
+            if(f.type==='image/gif')document.getElementById('b-gif').style.display='block';
+        }; img.src=ev.target.result;
+    }; r.readAsDataURL(f);
+};
 function drw(){
-    ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
-    ctx.save(); ctx.translate(80+oX, 40+oY); ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(img, -img.width*scale/2, -img.height*scale/2, img.width*scale, img.height*scale);
-    ctx.restore();
+    ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
+    ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rot*Math.PI/180);
+    ctx.drawImage(img,-img.width*scale/2,-img.height*scale/2,img.width*scale,img.height*scale);ctx.restore();
 }
-function z(v){ scale += v; if(scale<0.01)scale=0.01; drw(); }
-function rot(){ rotation = (rotation+90)%360; drw(); }
-// Drag
-let cD=false, cX=0, cY=0;
-cvs.addEventListener('mousedown',e=>{cD=true;cX=e.clientX;cY=e.clientY;});
-document.addEventListener('mouseup',()=>cD=false);
-cvs.addEventListener('mousemove',e=>{if(cD){oX+=e.clientX-cX;oY+=e.clientY-cY;cX=e.clientX;cY=e.clientY;drw();}});
-cvs.addEventListener('touchstart',e=>{cD=true;cX=e.touches[0].clientX;cY=e.touches[0].clientY;e.preventDefault();},{passive:false});
-cvs.addEventListener('touchmove',e=>{if(cD){oX+=e.touches[0].clientX-cX;oY+=e.touches[0].clientY-cY;cX=e.touches[0].clientX;cY=e.touches[0].clientY;drw();e.preventDefault();}},{passive:false});
-
+function z(v){scale+=v;drw();}
+cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);e.preventDefault();};
+cvs.ontouchmove=e=>{
+    if(e.touches.length===2){
+        let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);
+        scale*=(d/pD); pD=d; drw();
+    }else{oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;}
+    lX=e.touches[0].clientX;lY=e.touches[0].clientY;e.preventDefault();
+};
 function uploadImg(){
-    document.getElementById('status').innerText='Uploading...';
-    document.getElementById('progress-container').style.display='block';
-    let data=ctx.getImageData(0,0,160,80).data;
-    let b=new Uint8Array(25600);
+    let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
-        let r=data[j*4], g=data[j*4+1], bl=data[j*4+2];
+        let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
         let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
-        b[j*2]=rgb>>8; b[j*2+1]=rgb&0xFF;
+        b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF;
     }
-    // Add to history
-    let thumb = cvs.toDataURL('image/jpeg', 0.5);
-    if(!history.find(x=>x.src==thumb)){
-        history.unshift({src:thumb, data:b});
-        if(history.length>10)history.pop();
-        uHist();
-    }
-    
-    let p=0;
-    let iv = setInterval(()=>{
-        p+=10; document.getElementById('progress-bar').style.width=p+'%';
-        if(p>=100){
-            clearInterval(iv);
-            if(ws.readyState===1){
-                ws.send(b);
-                document.getElementById('status').innerText='Success!';
-            }
-            setTimeout(()=>{document.getElementById('progress-container').style.display='none';},1000);
-        }
-    },50);
+    ws.send(b);
 }
-function uHist(){
-    let h=document.getElementById('ig-hist'); h.innerHTML='';
-    history.forEach(x=>{
-        let i=document.createElement('div'); i.className='hist-item'; i.style.backgroundImage=`url(${x.src})`;
-        i.onclick=()=>{ ws.send(x.data); document.getElementById('status').innerText='Restored!'; };
-        h.appendChild(i);
-    });
-}
+function tAir(){if(!air&&typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')togA();}).catch(console.error);}else togA();}
+function togA(){air=!air;let b=document.getElementById('b-air');b.innerText='GYRO: '+(air?'ON':'OFF');b.className=air?'toggled':'';}
+window.ondeviceorientation=e=>{if(air){let x=Math.round((e.gamma||0)/2),y=Math.round(((e.beta||0)-45)/2);if(x||y)wsS('M:'+x+','+y);}};
 ws.onopen=()=>wsS('U:1');
 </script>
 </body>
@@ -286,14 +190,14 @@ ws.onopen=()=>wsS('U:1');
 void runMacro(String c) {
     Keyboard.releaseAll();
     if(c=="term") {
-        if(targetOS == "win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); }
+        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); }
         else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); }
     } else if(c=="calc") {
-        if(targetOS == "win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); }
+        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); }
         else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("gnome-calculator"); delay(50); Keyboard.write(KEY_RETURN); }
     } else if(c=="cad") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_DELETE); delay(100); Keyboard.releaseAll(); }
     else if(c=="lock") {
-        if(targetOS == "win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('l'); delay(100); Keyboard.releaseAll(); }
+        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('l'); delay(100); Keyboard.releaseAll(); }
         else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('l'); delay(100); Keyboard.releaseAll(); }
     } else if(c=="reisub" || c=="reisuo") {
         Keyboard.press(KEY_LEFT_ALT); Keyboard.press(70);
@@ -301,13 +205,12 @@ void runMacro(String c) {
         for(int i=0; seq[i]; i++) { delay(200); Keyboard.press(seq[i]); delay(100); Keyboard.release(seq[i]); }
         delay(100); Keyboard.releaseAll();
     } else if(c=="rick") {
-        if(targetOS == "win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); }
+        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); }
         else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); }
     }
 }
 
 static uint32_t binaryOffset = 0;
-
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     AwsFrameInfo *info = (AwsFrameInfo*)arg;
     if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
@@ -420,10 +323,9 @@ void updateDisplay() {
             drawString(2, 2, info, RGB_WHITE, 1);
             unsigned long age = millis() - lastKeyTime;
             if (age < 2000 && lastKey.length() > 0) {
-                uint16_t kc = SWAP(RGB_GREEN); // Always Green fading to black
                 int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
                 int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
-                drawString(tx, ty, lastKey.c_str(), RGB_GREEN, sc); // drawString handles swap
+                drawString(tx, ty, lastKey.c_str(), RGB_GREEN, sc);
             }
         }
     }
