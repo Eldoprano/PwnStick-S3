@@ -42,7 +42,7 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// GIF Storage (3 frames is the stable limit for this RAM)
+// Static GIF Storage (3 frames is the safety limit for stability)
 static uint16_t gif_storage[3][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
@@ -65,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v27</title>
+<title>PwnDongle v28</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -74,11 +74,12 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; }
 #crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
 #crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
@@ -86,10 +87,11 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
 .history { display:flex; gap:10px; overflow-x:auto; padding:10px 0; border-top:1px solid #222; margin-top:10px; }
 .hist-item { width:60px; height:30px; border:1px solid #0f0; flex-shrink:0; cursor:pointer; background-size:cover; }
+#gif-src { position:fixed; top:-1000px; left:-1000px; width:160px; height:80px; opacity:0.01; }
 </style>
 </head>
 <body>
-<img id="gif-src" style="display:none">
+<img id="gif-src">
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
@@ -102,7 +104,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
     <button onclick="wsS('A:rick')">RICKROLL</button>
 </div>
-<div id="c-ms" class="content"><div id="pad" style="background:#0a0a0a;border:1px solid #333;height:40vh;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#444">TRACKPAD</div></div>
+<div id="c-ms" class="content"><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
     <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
@@ -116,7 +118,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', history=[], isGif=false;
+let os='win', air=false, history=[], isGif=false;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -129,13 +131,13 @@ let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
 // Trackpad
-let p=document.getElementById('pad'),lX=0,lY=0,isD=false,moved=false,tapT=0;
-p.onmousedown=e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
-document.onmouseup=()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;};
-p.onmousemove=e=>{if(isD){let dx=e.clientX-lX,dy=e.clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+dx+','+dy);lX=e.clientX;lY=e.clientY;}};
-p.ontouchstart=e=>{isD=true;moved=false;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
-p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
-p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
+let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
+p.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
+document.onmouseup=()=>{if(isD&&Date.now()-tapT<200)wsS('C:l');isD=false;};
+p.onmousemove=e=>{if(isD){wsS('M:'+(e.clientX-lX)+','+(e.clientY-lY));lX=e.clientX;lY=e.clientY;}};
+p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
+p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
+p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
 let gEl=document.getElementById('gif-src'),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
 document.getElementById('img-f').onchange=e=>{
@@ -179,21 +181,21 @@ function getB(){
     return b;
 }
 function upl(){
-    let upBtn=document.getElementById('b-up'); upBtn.disabled=true;
+    let btn=document.getElementById('b-up'); btn.disabled=true;
     if(isGif){
         wsS('I:gif');
         let f=0;
         let iv=setInterval(()=>{
             ws.send(getB()); f++;
             document.getElementById('status').innerText='Recording: '+f+'/3';
-            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='Loop Active!'; upBtn.disabled=false; }
-        },800);
+            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='Animated!'; btn.disabled=false; }
+        },1200);
     }else{
         wsS('I:img');
         let b=getB(); ws.send(b);
         let thumb=cvs.toDataURL('image/jpeg',0.5);
         if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-        document.getElementById('status').innerText='Success!'; upBtn.disabled=false;
+        document.getElementById('status').innerText='Success!'; btn.disabled=false;
     }
 }
 function uHist(){
@@ -255,9 +257,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
             if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
         } else if (msg.startsWith("U:")) {
-            char b = msg.charAt(2);
-            if(b == '1') { user_on_site = true; }
-            else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
+            if(msg.charAt(2) == '1') { user_on_site = true; }
+            else { char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
         } else if (msg.startsWith("H:")) {
             int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
             uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
@@ -315,7 +316,6 @@ void updateDisplay() {
                 }
             }
         } else {
-            if (clients == 0) { user_on_site = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
@@ -370,7 +370,10 @@ void setup() {
     WiFi.mode(WIFI_AP); WiFi.softAP(ssid);
     dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
     Keyboard.begin(); Mouse.begin(); USB.begin(); setup_lcd();
-    ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){ if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len); });
+    ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
+        if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
+        else if(type == WS_EVT_DISCONNECT) { user_on_site = false; }
+    });
     server.addHandler(&ws);
     server.on("/generate_204", [](AsyncWebServerRequest *request){ request->redirect("http://192.168.4.1/"); });
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ request->send_P(200, "text/html", index_html); });
