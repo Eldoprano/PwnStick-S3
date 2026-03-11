@@ -42,7 +42,6 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (3 frames max for RAM stability)
 static uint16_t gif_storage[3][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
@@ -65,14 +64,14 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v32</title>
+<title>PwnDongle v33</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
 .tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
-.content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
+.content { padding:10px; display:none; height:calc(100vh - 150px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
@@ -85,9 +84,11 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
+#dbg { position:fixed; bottom:0; left:0; right:0; height:80px; background:#111; color:#f00; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #300; pointer-events:none; }
 </style>
 </head>
 <body>
+<div id="dbg">Console Ready...</div>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
@@ -112,6 +113,8 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
 </div>
 <script>
+function log(m){let d=document.getElementById('dbg');d.innerText+="\n"+m;d.scrollTop=d.scrollHeight;}
+window.onerror=(m,s,l,c,e)=>log("ERR: "+m+" L"+l);
 let ws=new WebSocket('ws://'+location.host+'/ws');
 let os='win', isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
@@ -152,10 +155,6 @@ function drw(){
     ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);ctx.restore();
 }
 function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
-cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
-cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;drw();}};
-cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
-cvs.ontouchmove=e=>{if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw();}else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw();}e.preventDefault();};
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -167,30 +166,37 @@ function getB(){
 }
 async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
-    if(isGif){
-        document.getElementById('status').innerText='Slicing GIF...';
-        wsS('I:gif');
-        let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
-        let header=gifBytes.slice(0,13+gctSize);
-        let frames=[], pos=13+gctSize;
-        while(pos<gifBytes.length && frames.length<3){
-            if(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9){
-                let start=pos; pos+=2;
-                while(pos<gifBytes.length-1 && !(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9)) pos++;
-                let f=new Uint8Array(header.length + (pos-start) + 1);
-                f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
-                frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
-            } else pos++;
+    try{
+        if(isGif){
+            log("Slicing GIF...");
+            wsS('I:gif');
+            let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
+            let header=gifBytes.slice(0,13+gctSize);
+            let frames=[], pos=13+gctSize;
+            while(pos<gifBytes.length-1 && frames.length<3){
+                if(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9){
+                    let start=pos; pos+=2;
+                    while(pos<gifBytes.length-1 && !(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9)) pos++;
+                    let f=new Uint8Array(header.length + (pos-start) + 1);
+                    f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
+                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
+                } else pos++;
+            }
+            log("Found "+frames.length+" frames");
+            for(let i=0; i<frames.length; i++){
+                await new Promise((res,rej)=>{
+                    curImg.onload=()=>{ log("Loaded frame "+(i+1)); drw(); ws.send(getB()); res(); };
+                    curImg.onerror=()=>rej("Frame "+i+" fail");
+                    curImg.src=frames[i];
+                });
+                await new Promise(r=>setTimeout(r,500));
+            }
+            document.getElementById('status').innerText='GIF Done!';
+        }else{
+            wsS('I:img'); ws.send(getB());
+            document.getElementById('status').innerText='Success!';
         }
-        for(let i=0; i<frames.length; i++){
-            await new Promise(res=>{curImg.onload=()=>{drw();ws.send(getB());document.getElementById('status').innerText='Frame '+(i+1)+'/3';res();}; curImg.src=frames[i];});
-            await new Promise(r=>setTimeout(r,300));
-        }
-        document.getElementById('status').innerText='Loop Active!';
-    }else{
-        wsS('I:img'); ws.send(getB());
-        document.getElementById('status').innerText='Success!';
-    }
+    }catch(e){log("UPL FAIL: "+e);}
     btn.disabled=false;
 }
 ws.onopen=()=>wsS('U:1');
@@ -303,7 +309,6 @@ void updateDisplay() {
                 }
             }
         } else {
-            if (ws.count() > 0) user_on_site = true; else user_on_site = false;
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
@@ -360,6 +365,7 @@ void setup() {
     Keyboard.begin(); Mouse.begin(); USB.begin(); setup_lcd();
     ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
         if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
+        else if(type == WS_EVT_DISCONNECT) { user_on_site = false; }
     });
     server.addHandler(&ws);
     server.on("/generate_204", [](AsyncWebServerRequest *request){ request->redirect("http://192.168.4.1/"); });
