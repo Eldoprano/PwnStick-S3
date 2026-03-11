@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v41</title>
+<title>PwnDongle v42</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -130,19 +130,8 @@ function uOS(){
 document.getElementById('b-win-os').className=(os=='win'?'toggled':'');
 document.getElementById('b-lin-os').className=(os=='lin'?'toggled':'');
 }
-function mD(m,el){
-    el.dataset.t=Date.now();
-    el.dataset.h=setTimeout(()=>{
-        el.dataset.h=0; el.classList.toggle('toggled');
-        wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
-    },500);
-}
-function mU(m,el){
-    if(el.dataset.h){
-        clearTimeout(el.dataset.h); el.dataset.h=0;
-        wsS('P:'+m);
-    }
-}
+function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },500); }
+function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
 let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
@@ -156,6 +145,8 @@ p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l
 p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
 // Image logic
 let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0;
+// Comp Canvas for GIF assembly
+let cCvs=document.createElement('canvas'), cCtx=cCvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
@@ -168,10 +159,11 @@ document.getElementById('img-f').onchange=e=>{
         }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
     }; r.readAsArrayBuffer(f);
 };
-function drw(clr){
+function drw(clr, imgOverride){
     if(clr){ ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); }
+    let target = imgOverride || curImg;
     ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
+    ctx.drawImage(target,-target.width*scale/2,-target.height*scale/2,target.width*scale,target.height*scale);
     ctx.restore();
 }
 function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
@@ -194,37 +186,43 @@ async function upl(){
     try{
         if(isGif){
             wsS('I:gif');
+            let lw = gifBytes[6]|(gifBytes[7]<<8), lh = gifBytes[8]|(gifBytes[9]<<8);
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
+            cCvs.width = lw; cCvs.height = lh; cCtx.clearRect(0,0,lw,lh);
             let frames=[], pos=13+gctSize, curF=[];
             while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<50){
                 let b = gifBytes[pos];
                 if(b===0x21){ let st=pos; pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; if(gifBytes[st+1]===0xF9) curF.push(gifBytes.slice(st,pos)); }
                 else if(b===0x2C){
-                    let st=pos; pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
+                    let st=pos; let x=gifBytes[pos+1]|(gifBytes[pos+2]<<8), y=gifBytes[pos+3]|(gifBytes[pos+4]<<8);
+                    let w=gifBytes[pos+5]|(gifBytes[pos+6]<<8), h=gifBytes[pos+7]|(gifBytes[pos+8]<<8);
+                    pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
                     while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++;
                     curF.push(gifBytes.slice(st,pos));
                     let len=header.length+1; for(let c of curF) len+=c.length;
                     let f=new Uint8Array(len); f.set(header,0); let off=header.length;
                     for(let c of curF){ f.set(c,off); off+=c.length; } f[off]=0x3B;
-                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'}))); curF=[];
+                    frames.push({blob:URL.createObjectURL(new Blob([f],{type:'image/gif'})), x, y, w, h}); curF=[];
                 } else pos++;
             }
-            let maxFrames = parseInt(document.getElementById('g-cnt').value)||5;
-            let skip = parseInt(document.getElementById('g-skp').value)||0;
-            let filtered = [];
-            for(let i=0; i<frames.length && filtered.length<maxFrames; i+=(skip+1)) filtered.push(frames[i]);
-            ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
-            for(let i=0; i<filtered.length; i++){
-                await new Promise((res)=>{
-                    curImg.onload=()=>{ drw(false); ws.send(getB()); res(); };
-                    curImg.src=filtered[i];
+            let maxF = parseInt(document.getElementById('g-cnt').value)||5, skip = parseInt(document.getElementById('g-skp').value)||0;
+            let sI = 0;
+            for(let i=0; i<frames.length && sI < maxF; i++){
+                let f = frames[i];
+                await new Promise(res=>{
+                    let tmp = new Image(); tmp.onload=()=>{
+                        cCtx.drawImage(tmp, f.x, f.y, f.w, f.h);
+                        if(i % (skip+1) === 0){
+                            drw(true, cCvs); ws.send(getB()); sI++;
+                            document.getElementById('status').innerText='Beam '+sI+'/'+maxF;
+                        } res();
+                    }; tmp.src = f.blob;
                 });
-                await new Promise(r=>setTimeout(r,400));
-                document.getElementById('status').innerText='Beam '+(i+1)+'/'+filtered.length;
+                if(i % (skip+1) === 0) await new Promise(r=>setTimeout(r,400));
             }
             document.getElementById('status').innerText='Animated!';
-            curImg.src=URL.createObjectURL(new Blob([gifBytes]));
+            drw(true); // Reset to preview
         }else{
             wsS('I:img'); ws.send(getB()); document.getElementById('status').innerText='Success!';
         }
