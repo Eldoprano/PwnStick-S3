@@ -42,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (3 frames max for RAM stability)
-static uint16_t gif_storage[3][160 * 80];
+// Static GIF Storage (5 frames max)
+static uint16_t gif_storage[5][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -65,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v37</title>
+<title>PwnDongle v38</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -138,7 +138,7 @@ p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT
 p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
-let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image();
+let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0;
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
@@ -146,17 +146,21 @@ document.getElementById('img-f').onchange=e=>{
         gifBytes=new Uint8Array(ev.target.result);
         curImg.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw();
+            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw(true);
         }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
     }; r.readAsArrayBuffer(f);
 };
-function drw(){
-    ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
+function drw(clr){
+    if(clr){ ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); }
     ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
     ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
     ctx.restore();
 }
-function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
+function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
+cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
+cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;drw(true);}};
+cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
+cvs.ontouchmove=e=>{if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw(true);}else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw(true);}e.preventDefault();};
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -170,59 +174,38 @@ async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
     try{
         if(isGif){
-            log("Slicing GIF blocks...");
+            log("Slicing 5 frame flipbook...");
             wsS('I:gif');
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
-            let frames=[], pos=13+gctSize;
-            let curFrame = [];
-            while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<3){
+            let frames=[], pos=13+gctSize, curF=[];
+            while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<10){
                 let b = gifBytes[pos];
-                if(b===0x21){ // Extension
-                    let extType=gifBytes[pos+1];
-                    let start=pos; pos+=2;
-                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1;
-                    pos++; 
-                    if(extType===0xF9) curFrame.push(gifBytes.slice(start,pos));
-                } else if(b===0x2C){ // Image Descriptor
-                    let start=pos; pos+=10;
-                    if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1);
-                    pos++;
-                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1;
-                    pos++;
-                    curFrame.push(gifBytes.slice(start,pos));
-                    
-                    let len=header.length+1;
-                    for(let c of curFrame) len+=c.length;
-                    let f=new Uint8Array(len); f.set(header,0);
-                    let off=header.length;
-                    for(let c of curFrame){ f.set(c,off); off+=c.length; }
-                    f[off]=0x3B;
-                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
-                    curFrame=[];
-                } else { pos++; }
+                if(b===0x21){ let st=pos; pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; if(gifBytes[st+1]===0xF9) curF.push(gifBytes.slice(st,pos)); }
+                else if(b===0x2C){
+                    let st=pos; pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
+                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++;
+                    curF.push(gifBytes.slice(st,pos));
+                    let len=header.length+1; for(let c of curF) len+=c.length;
+                    let f=new Uint8Array(len); f.set(header,0); let off=header.length;
+                    for(let c of curF){ f.set(c,off); off+=c.length; } f[off]=0x3B;
+                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'}))); curF=[];
+                } else pos++;
             }
-            log("Parser found "+frames.length+" frames");
-            ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); // Clear canvas once for background
-            for(let i=0; i<frames.length; i++){
+            let skipped = frames.filter((_,i)=>i%2==0).slice(0,5);
+            log("Parser found "+frames.length+" total, keeping "+skipped.length);
+            ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
+            for(let i=0; i<skipped.length; i++){
                 await new Promise((res)=>{
-                    curImg.onload=()=>{
-                        // Draw cumulatively without clearing to preserve transparent pixels
-                        ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
-                        ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
-                        ctx.restore();
-                        ws.send(getB()); log("Frame "+(i+1)+" sent to dongle"); res();
-                    }; 
-                    curImg.onerror=()=>{ log("Frame "+(i+1)+" error"); res(); };
-                    curImg.src=frames[i];
+                    curImg.onload=()=>{ drw(false); ws.send(getB()); log("Sent Frame "+(i+1)); res(); };
+                    curImg.src=skipped[i];
                 });
                 await new Promise(r=>setTimeout(r,400));
             }
             document.getElementById('status').innerText='Loop Active!';
-            curImg.src=URL.createObjectURL(new Blob([gifBytes])); // Restore preview
+            curImg.src=URL.createObjectURL(new Blob([gifBytes]));
         }else{
-            wsS('I:img'); ws.send(getB());
-            document.getElementById('status').innerText='Success!';
+            wsS('I:img'); ws.send(getB()); document.getElementById('status').innerText='Success!';
         }
     }catch(e){log("FAIL: "+e);}
     btn.disabled=false;
@@ -303,7 +286,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 3) {
+                if(gif_mode && gif_count < 5) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
@@ -337,7 +320,7 @@ void updateDisplay() {
                 }
             }
         } else {
-            if (ws.count() > 0) user_on_site = true; else user_on_site = false;
+            if (clients == 0) { user_on_site = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
