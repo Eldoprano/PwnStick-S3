@@ -24,7 +24,7 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Colors (Consistent naming)
+// Colors
 #define C_GREEN      0x07E0
 #define C_DARKGREEN  0x03E0
 #define C_DIM        0x01E0
@@ -44,7 +44,13 @@ DNSServer dnsServer;
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
-static uint16_t custom_img_buf[160 * 80];
+
+// GIF Engine (5 frames max to fit RAM)
+static uint16_t* gif_frames[5] = {NULL, NULL, NULL, NULL, NULL};
+static int gif_count = 0;
+static int gif_idx = 0;
+static unsigned long last_gif_ms = 0;
+static bool gif_active = false;
 
 const char* ssid = "PwnDongle";
 String targetOS = "win";
@@ -65,28 +71,26 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v18</title>
+<title>PwnDongle v19</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
-.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; font-size:14px; }
+.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; transition: background 0.1s; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
+button.toggled { background:#0f0 !important; color:#000 !important; }
 .row { display:flex; gap:10px; }
-textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; margin-top:5px; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; font-weight:bold; }
-#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; min-height:100px; }
-#crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
+textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; }
+#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
+#crop-canvas { display:block; margin:0 auto; max-width:100%; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#progress-container { width:100%; background:#111; border:1px solid #0f0; height:10px; margin-top:5px; display:none; }
-#progress-bar { width:0%; height:100%; background:#0f0; transition: width 0.1s; }
 .history { display:flex; gap:10px; overflow-x:auto; padding:10px 0; border-top:1px solid #222; margin-top:10px; }
 .hist-item { width:60px; height:30px; border:1px solid #0f0; flex-shrink:0; cursor:pointer; background-size:cover; }
 </style>
@@ -95,9 +99,13 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
-    <div class="row" style="margin-top:10px"><button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button><button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button><button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button></div>
+    <div class="row" style="margin-top:10px">
+        <button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button>
+        <button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button>
+        <button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button>
+    </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
-    <div class="row" style="margin-top:10px"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
+    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
     <div id="win-tools" class="row"><button onclick="wsS('A:cad')" style="color:#f00;border-color:#f00">C-A-D</button><button onclick="wsS('A:lock')">LOCK</button></div>
     <div id="lin-tools" class="row" style="display:none;"><button onclick="wsS('A:reisub')" style="color:#f00;border-color:#f00">REBOOT</button><button onclick="wsS('A:reisuo')" style="color:#f00;border-color:#f00">OFF</button></div>
     <button onclick="wsS('A:rick')">RICKROLL</button>
@@ -106,10 +114,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <div id="c-ig" class="content">
     <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
-    <div id="progress-container"><div id="progress-bar"></div></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
-        <div class="row"><button onclick="z(-0.05)">- ZOOM</button><button onclick="z(0.05)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
+        <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
         <button onclick="uploadImg()">UPLOAD</button>
     </div>
     <div class="history" id="ig-hist"></div>
@@ -130,8 +137,19 @@ document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
 document.getElementById('win-tools').style.display=(os=='win'?'flex':'none');
 document.getElementById('lin-tools').style.display=(os=='lin'?'flex':'none');
 }
-function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
-function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; if(Date.now()-el.dataset.t<400)wsS('P:'+m); } }
+function mD(m,el){
+el.dataset.t=Date.now();
+el.dataset.h=setTimeout(()=>{
+el.dataset.h=0; el.classList.toggle('toggled');
+wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
+},400);
+}
+function mU(m,el){
+if(el.dataset.h){
+clearTimeout(el.dataset.h); el.dataset.h=0;
+wsS('P:'+m); // Send click
+}
+}
 let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
@@ -175,29 +193,16 @@ cvs.ontouchmove=e=>{
 };
 function uploadImg(){
     document.getElementById('status').innerText='Sending...';
-    document.getElementById('progress-container').style.display='block';
-    let data=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
+    let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
-        let r=data[j*4],g=data[j*4+1],bl=data[j*4+2];
+        let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
         let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
         b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF;
     }
-    // Add to history
-    let thumb = cvs.toDataURL('image/jpeg', 0.5);
-    if(!history.find(x=>x.src==thumb)){
-        history.unshift({src:thumb, data:b});
-        if(history.length>10)history.pop();
-        uHist();
-    }
-    let p=0;
-    let iv = setInterval(()=>{
-        p+=10; document.getElementById('progress-bar').style.width=p+'%';
-        if(p>=100){
-            clearInterval(iv);
-            if(ws.readyState===1){ ws.send(b); document.getElementById('status').innerText='Success!'; }
-            setTimeout(()=>{document.getElementById('progress-container').style.display='none';},1000);
-        }
-    },50);
+    let thumb=cvs.toDataURL('image/jpeg',0.5);
+    if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
+    ws.send(b);
+    setTimeout(()=>document.getElementById('status').innerText='Ready!',1000);
 }
 function uHist(){
     let h=document.getElementById('ig-hist'); h.innerHTML='';
@@ -274,13 +279,21 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-        else if (msg.startsWith("I:clear")) { show_img = false; }
+        else if (msg.startsWith("I:clear")) { show_img = false; gif_active = false; }
     } else if (info->opcode == WS_BINARY) {
         if (info->index == 0) binaryOffset = 0;
         if (binaryOffset + len <= 25600) {
-            memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
+            memcpy(((uint8_t*)screen_buf) + binaryOffset, data, len);
             binaryOffset += len;
-            if (binaryOffset == 25600) { show_img = true; }
+            if (binaryOffset == 25600) {
+                show_img = true;
+                if(gif_active && gif_count < 5) {
+                    if(gif_frames[gif_count]) free(gif_frames[gif_count]);
+                    gif_frames[gif_count] = (uint16_t*)malloc(25600);
+                    if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], screen_buf, 25600);
+                    gif_count++;
+                }
+            }
         }
     }
 }
@@ -309,12 +322,18 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
 
 void updateDisplay() {
     if (show_img) {
-        memcpy(screen_buf, custom_img_buf, 25600);
+        if(gif_active && gif_count > 0) {
+            if(millis() - last_gif_ms > 200) {
+                last_gif_ms = millis();
+                memcpy(screen_buf, gif_frames[gif_idx], 25600);
+                gif_idx = (gif_idx + 1) % gif_count;
+            }
+        }
+        // Buffer is already updated by binary WS or GIF loop
     } else {
         int clients = WiFi.softAPgetStationNum();
         if (clients > 0 && !user_on_site && !qrActive) { qrActive = true; qrStartTime = millis(); }
         if (clients == 0) { user_on_site = false; qrActive = false; }
-
         if (qrActive) {
             for(int i=0; i<160*80; i++) screen_buf[i] = SWAP(C_BLACK);
             int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
