@@ -44,8 +44,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// GIF Engine (5 frames max)
-static uint16_t* gif_frames[5] = {NULL, NULL, NULL, NULL, NULL};
+// GIF Engine (8 frames max)
+static uint16_t* gif_frames[8] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -69,7 +69,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v20</title>
+<title>PwnDongle v21</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -98,9 +98,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <div id="c-kb" class="content active">
     <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button>
+        <button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
+        <button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
+        <button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
@@ -115,8 +115,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
         <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
-        <button id="b-up" onclick="uploadImg()">UPLOAD IMAGE</button>
-        <button id="b-gif" onclick="uploadGif()" style="display:none;border-color:#f0f;color:#f0f">UPLOAD AS GIF</button>
+        <button id="b-up" onclick="upl()">UPLOAD</button>
     </div>
     <div class="history" id="ig-hist"></div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
@@ -157,7 +156,6 @@ document.getElementById('img-f').onchange=e=>{
     let r=new FileReader(); r.onload=ev=>{
         img.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            document.getElementById('b-gif').style.display=isGif?'block':'none';
             scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;drw();
         }; img.src=ev.target.result;
     }; r.readAsDataURL(f);
@@ -190,22 +188,23 @@ function getB(){
     }
     return b;
 }
-function uploadImg(){
-    document.getElementById('status').innerText='Sending Image...';
-    let b=getB(); ws.send(b);
-    let thumb=cvs.toDataURL('image/jpeg',0.5);
-    if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-    setTimeout(()=>document.getElementById('status').innerText='Success!',1000);
-}
-function uploadGif(){
-    document.getElementById('status').innerText='Capturing Animation...';
-    wsS('I:gif'); // Start GIF mode
-    let frames = 0;
-    let iv = setInterval(()=>{
-        drw(); ws.send(getB()); frames++;
-        document.getElementById('status').innerText='Capturing: '+(frames*20)+'%';
-        if(frames >= 5){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; }
-    },200);
+function upl(){
+    if(isGif){
+        document.getElementById('status').innerText='GIF Capture...';
+        wsS('I:gif');
+        let f=0;
+        let iv=setInterval(()=>{
+            drw(); ws.send(getB()); f++;
+            document.getElementById('status').innerText='GIF: '+(f*12.5)+'%';
+            if(f>=8){ clearInterval(iv); document.getElementById('status').innerText='GIF Ready!'; }
+        },200);
+    }else{
+        document.getElementById('status').innerText='Sending...';
+        let b=getB(); ws.send(b);
+        let thumb=cvs.toDataURL('image/jpeg',0.5);
+        if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
+        setTimeout(()=>document.getElementById('status').innerText='Ready!',500);
+    }
 }
 function uHist(){
     let h=document.getElementById('ig-hist'); h.innerHTML='';
@@ -255,7 +254,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
         else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
         else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
-        else if (msg.startsWith("B:")) { Keyboard.press(KEY_BACKSPACE); delay(10); Keyboard.release(KEY_BACKSPACE); setLastKey("DEL"); }
+        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
         else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
         else if (msg.startsWith("M:")) {
             int comma = msg.indexOf(',');
@@ -282,7 +281,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-        else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; }
+        else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; gif_count = 0; }
         else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
     } else if (info->opcode == WS_BINARY) {
         if (info->index == 0) binaryOffset = 0;
@@ -290,7 +289,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 5) {
+                if(gif_mode && gif_count < 8) {
                     if(!gif_frames[gif_count]) gif_frames[gif_count] = (uint16_t*)malloc(25600);
                     if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], custom_img_buf, 25600);
                     gif_count++;
@@ -326,7 +325,7 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
 void updateDisplay() {
     if (show_img) {
         if(gif_mode && gif_count > 0) {
-            if(millis() - last_gif_ms > 200) {
+            if(millis() - last_gif_ms > 150) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_frames[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
