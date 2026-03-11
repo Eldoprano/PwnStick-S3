@@ -42,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (2 frames for absolute RAM safety)
-static uint16_t gif_storage[2][160 * 80];
+// Static GIF Storage (4 frames * 25.6KB = 102.4KB)
+static uint16_t gif_storage[4][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v30</title>
+<title>PwnDongle v31</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -84,7 +84,6 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#gif-preview { width:60px; height:30px; border:1px solid #333; margin:5px auto; display:none; background:#111; }
 </style>
 </head>
 <body>
@@ -92,9 +91,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
-        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
-        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
+        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);e.p()">WIN</button>
+        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);e.p()">CTRL</button>
+        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);e.p()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
@@ -102,7 +101,6 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <div id="c-ms" class="content"><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
-    <div id="gif-preview"><img id="gif-src" style="width:100%;height:100%"></div>
     <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
@@ -114,7 +112,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', history=[], isGif=false;
+let os='win', isGif=false, gifData=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -135,39 +133,29 @@ p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT
 p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
-let gEl=document.getElementById('gif-src'),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
-document.getElementById('img-f').onchange=e=>{
+let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0,curBitmap=null;
+document.getElementById('img-f').onchange=async e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
-    let r=new FileReader(); r.onload=ev=>{
-        gEl.onload=()=>{
-            document.getElementById('ig-controls').style.display='block';
-            document.getElementById('gif-preview').style.display=isGif?'block':'none';
-            scale=Math.max(160/gEl.width,80/gEl.height);oX=0;oY=0;rotation=0;
-            if(!window.animating){ window.animating=true; play(); }
-        }; gEl.src=ev.target.result;
-    }; r.readAsDataURL(f);
+    gifData=await f.arrayBuffer();
+    let img=new Image();
+    img.onload=()=>{
+        document.getElementById('ig-controls').style.display='block';
+        scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;
+        curBitmap=img; drw();
+    }; img.src=URL.createObjectURL(f);
 };
-function play(){
+function drw(){
+    if(!curBitmap)return;
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
     ctx.save();ctx.translate(160/2+oX,80/2+oY);ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(gEl,-gEl.width*scale/2,-gEl.height*scale/2,gEl.width*scale,gEl.height*scale);ctx.restore();
-    requestAnimationFrame(play);
+    ctx.drawImage(curBitmap,-curBitmap.width*scale/2,-curBitmap.height*scale/2,curBitmap.width*scale,curBitmap.height*scale);ctx.restore();
 }
-function z(v){scale+=v;} function rot(){rotation=(rotation+90)%360;}
+function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
-cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;}};
-cvs.ontouchstart=e=>{
-    if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);
-    else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}
-};
-cvs.ontouchmove=e=>{
-    if(e.touches.length===2){
-        let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);
-        scale*=(d/pD);pD=d;
-    }else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}
-    e.preventDefault();
-};
+cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;drw();}};
+cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
+cvs.ontouchmove=e=>{if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw();}else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw();}e.preventDefault();};
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -177,21 +165,28 @@ function getB(){
     }
     return b;
 }
-function upl(){
+async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
-    if(isGif){
+    if(isGif && typeof ImageDecoder !== 'undefined'){
         wsS('I:gif');
-        let f=0;
-        let iv=setInterval(()=>{
-            ws.send(getB()); f++;
-            document.getElementById('status').innerText='Capturing: '+f+'/2';
-            if(f>=2){ clearInterval(iv); document.getElementById('status').innerText='Loop Sync OK!'; btn.disabled=false; }
-        },1500);
+        const decoder = new ImageDecoder({data: gifData, type: 'image/gif'});
+        await decoder.tracks.ready;
+        const total = decoder.tracks.selectedTrack.frameCount;
+        const indices = [0, Math.floor(total/3), Math.floor(2*total/3), total-1];
+        for(let i=0; i<4; i++){
+            const result = await decoder.decode({frameIndex: indices[i]});
+            curBitmap = result.image; drw();
+            ws.send(getB());
+            document.getElementById('status').innerText='Extracted: '+(i+1)+'/4';
+            await new Promise(r=>setTimeout(r,200));
+        }
+        document.getElementById('status').innerText='GIF Active!';
     }else{
         wsS('I:img');
-        let b=getB(); ws.send(b);
-        document.getElementById('status').innerText='Success!'; btn.disabled=false;
+        ws.send(getB());
+        document.getElementById('status').innerText='Success!';
     }
+    btn.disabled=false;
 }
 ws.onopen=()=>wsS('U:1');
 </script>
@@ -268,7 +263,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 2) {
+                if(gif_mode && gif_count < 4) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
@@ -282,7 +277,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 void updateDisplay() {
     if (show_img) {
         if(gif_mode && gif_count > 1) {
-            if(millis() - last_gif_ms > 200) {
+            if(millis() - last_gif_ms > 150) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_storage[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
