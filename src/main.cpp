@@ -24,7 +24,7 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Swapped colors for ST7735
+// Colors
 #define C_GREEN      0xE007
 #define C_DARKGREEN  0x4002
 #define C_DIM        0x2001
@@ -49,6 +49,7 @@ String targetOS = "win";
 String lastKey = "";
 unsigned long lastKeyTime = 0;
 bool show_img = false;
+bool user_on_site = false;
 
 // Mouse cursor
 int cursorX = 80, cursorY = 40;
@@ -66,7 +67,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v14</title>
+<title>PwnDongle v15</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
 <style>
@@ -82,11 +83,12 @@ button.toggled { background:#0f0; color:#000; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; margin-top:5px; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; font-weight:bold; }
-#crop-container { width:100%; height:250px; background:#111; margin-top:10px; border:1px solid #333; position:relative; overflow:hidden; display:none; }
+#crop-container { width:100%; height:250px; background:#111; margin-top:10px; border:1px solid #333; position:relative; overflow:hidden; }
 #crop-img { max-width:100%; display:block; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
+#debug-console { width:100%; height:100px; background:#050505; color:#f00; font-size:10px; text-align:left; overflow-y:auto; border:1px solid #333; margin-top:10px; white-space:pre-wrap; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
@@ -103,11 +105,11 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
         <button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button>
     </div>
     <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');event.preventDefault()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');event.preventDefault()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');event.preventDefault()">ALT</button>
+        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');e.p()">WIN</button>
+        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');e.p()">CTRL</button>
+        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');e.p()">ALT</button>
     </div>
-    <textarea id="ta" placeholder="Type messages..."></textarea>
+    <textarea id="ta" placeholder="Type or Paste here..."></textarea>
     <div class="row" style="margin-top:10px">
         <button onclick="wsS('A:term')">TERM</button>
         <button onclick="wsS('A:calc')">CALC</button>
@@ -127,9 +129,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <button id="b-air" onclick="tAir()">GYRO MOUSE: OFF</button>
     <div id="pad">TRACKPAD</div>
     <div class="row" style="margin-top:10px;">
-        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');event.preventDefault()">LEFT</button>
-        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');event.preventDefault()">MID</button>
-        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');event.preventDefault()">RIGHT</button>
+        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');e.p()">LEFT</button>
+        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');e.p()">MID</button>
+        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');e.p()">RIGHT</button>
     </div>
 </div>
 
@@ -145,14 +147,18 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
             <button onclick="cropper.rotate(-90)">ROT L</button>
             <button onclick="cropper.rotate(90)">ROT R</button>
         </div>
-        <button onclick="uploadImg()">UPLOAD TO DONGLE</button>
+        <button onclick="uploadImg()">SEND TO DONGLE</button>
     </div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR SCREEN</button>
+    <div id="debug-console">Console initialized...</div>
 </div>
 
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
 let os='win', cropper, air=false;
+function dbg(m){const c=document.getElementById('debug-console');c.innerText+='\n'+m;c.scrollTop=c.scrollHeight;}
+window.onerror=(m,s,l,c,e)=>dbg('ERR: '+m+' at '+l);
+
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -183,7 +189,13 @@ if(Date.now()-el.dataset.t<400)wsS('P:'+m);
 }
 }
 let ta=document.getElementById('ta');
-ta.addEventListener('input',e=>{ let c=ta.value.slice(-1); ta.value=''; if(c)wsS('K:'+c); });
+ta.addEventListener('input',e=>{
+if(e.inputType==='insertFromPaste' || ta.value.length > 1){
+wsS('V:'+ta.value); ta.value='';
+} else {
+let c=ta.value.slice(-1); ta.value=''; if(c)wsS('K:'+c);
+}
+});
 ta.addEventListener('keydown',e=>{
 if(e.key==='Enter'){e.preventDefault();wsS('E:1');}
 if(e.key==='Backspace'){e.preventDefault();wsS('B:1');}
@@ -204,43 +216,48 @@ if(!air && typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientation
 DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')togA();}).catch(console.error);
 }else togA();
 }
-function togA(){
-air=!air; let b=document.getElementById('b-air');
-b.innerText='GYRO MOUSE: '+(air?'ON':'OFF'); b.className=air?'toggled':'';
-}
+function togA(){ air=!air; let b=document.getElementById('b-air'); b.innerText='GYRO MOUSE: '+(air?'ON':'OFF'); b.className=air?'toggled':'';}
 window.addEventListener('deviceorientation',e=>{
 if(air){ let x=Math.round((e.gamma||0)/2), y=Math.round(((e.beta||0)-45)/2); if(x||y)wsS('M:'+x+','+y); }
 });
 
 document.getElementById('img-f').addEventListener('change', function(e) {
     let f=e.target.files[0]; if(!f)return;
-    document.getElementById('status').innerText='Loading...';
-    let r=new FileReader();
-    r.onload=ev=>{
-        let i=document.getElementById('crop-img'); i.src=ev.target.result;
-        document.getElementById('crop-container').style.display='block';
-        document.getElementById('ig-controls').style.display='block';
-        if(cropper)cropper.destroy();
-        cropper=new Cropper(i,{aspectRatio:2,viewMode:1,guides:false,background:false});
-        document.getElementById('status').innerText='Image Ready';
-    };
-    r.readAsDataURL(f);
+    document.getElementById('status').innerText='Loading JS...';
+    try {
+        let r=new FileReader();
+        r.onload=ev=>{
+            dbg('File read, starting cropper');
+            let i=document.getElementById('crop-img');
+            i.src=ev.target.result;
+            document.getElementById('crop-container').style.display='block';
+            document.getElementById('ig-controls').style.display='block';
+            if(cropper)cropper.destroy();
+            cropper=new Cropper(i,{aspectRatio:2,viewMode:1,guides:false,background:false,dragMode:'move',autoCropArea:1});
+            document.getElementById('status').innerText='Ready';
+        };
+        r.readAsDataURL(f);
+    } catch(err) { dbg('Load ERR: '+err); }
 });
 
 function uploadImg(){
 if(!cropper)return;
-document.getElementById('status').innerText='Sending...';
-let canvas=cropper.getCroppedCanvas({width:160,height:80});
-let d=canvas.getContext('2d').getImageData(0,0,160,80).data;
-let b=new Uint8Array(25600);
-for(let j=0;j<12800;j++){
-let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
-let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
-b[j*2]=rgb>>8; b[j*2+1]=rgb&0xFF;
+document.getElementById('status').innerText='Converting...';
+try {
+    let canvas=cropper.getCroppedCanvas({width:160,height:80});
+    let d=canvas.getContext('2d').getImageData(0,0,160,80).data;
+    let b=new Uint8Array(25600);
+    for(let j=0;j<12800;j++){
+        let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
+        let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
+        b[j*2]=rgb>>8; b[j*2+1]=rgb&0xFF;
+    }
+    document.getElementById('status').innerText='Sending...';
+    ws.send(b);
+    setTimeout(()=>document.getElementById('status').innerText='Uploaded!',1000);
+} catch(err) { dbg('Upload ERR: '+err); }
 }
-ws.send(b);
-setTimeout(()=>document.getElementById('status').innerText='Uploaded!',1000);
-}
+ws.onopen=()=>wsS('U:1');
 </script>
 </body>
 </html>
@@ -275,6 +292,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         if (info->opcode == WS_TEXT) {
             data[len] = 0; String msg = (char*)data;
             if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
+            else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
             else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
             else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
             else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
@@ -285,18 +303,19 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
                     Mouse.move(x, y); cursorX += x; cursorY += y;
                     if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
                     if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
-                    showCursorFrames = 20;
+                    showCursorFrames = 10;
                 }
             } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
                 char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
                 if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
             } else if (msg.startsWith("U:")) {
-                char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
-                Mouse.release(btn);
+                char b = msg.charAt(2);
+                if(b == '1') { user_on_site = true; qrActive = false; }
+                else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
             } else if (msg.startsWith("H:")) {
                 int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
                 uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(50); Keyboard.write(0); } // WIN key fix
+                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(50); Keyboard.write(0); }
             } else if (msg.startsWith("P:")) {
                 String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
                 Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
@@ -336,11 +355,10 @@ void updateDisplay() {
         memcpy(screen_buf, custom_img_buf, 25600);
     } else {
         int clients = WiFi.softAPgetStationNum();
-        if (clients > lastClientCount) { qrActive = true; qrStartTime = millis(); }
-        lastClientCount = clients;
+        if (clients > 0 && !user_on_site && !qrActive && !qrWasActive) { qrActive = true; qrStartTime = millis(); }
+        if (clients == 0) { user_on_site = false; qrActive = false; qrWasActive = false; }
 
         if (qrActive) {
-            if (millis() - qrStartTime > 10000) { qrActive = false; qrWasActive = true; }
             for(int i=0; i<160*80; i++) screen_buf[i] = C_BLACK;
             int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
             for(int y=0; y<qr_size; y++) {
@@ -354,15 +372,13 @@ void updateDisplay() {
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-40, 0); init = true; }
             
-            // Fast trail fading
             for(int i=0; i<160*80; i++) {
                 uint16_t c = screen_buf[i];
-                if (c == C_RED) screen_buf[i] = C_BLACK; // No trail for mouse
+                if (c == C_RED) screen_buf[i] = C_BLACK;
                 else if (c != C_BLACK) {
-                    // Manual shift-down fading
                     uint16_t r = (c >> 11) & 0x1F; uint16_t g = (c >> 5) & 0x3F; uint16_t b = c & 0x1F;
-                    if(r > 4) r -= 4; else r = 0; if(g > 4) g -= 4; else g = 0; if(b > 4) b -= 4; else b = 0;
-                    screen_buf[i] = (r << 11) | (g << 5) | b;
+                    if(g > 2) g -= 2; else g = 0;
+                    screen_buf[i] = (g << 5);
                 }
             }
             
