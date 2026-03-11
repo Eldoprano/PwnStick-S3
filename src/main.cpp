@@ -42,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// GIF Storage (3 frames max for absolute RAM safety)
-static uint16_t gif_storage[3][160 * 80];
+// Static GIF Storage (4 frames * 25.6KB = 102.4KB)
+static uint16_t gif_storage[4][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -66,7 +66,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v24</title>
+<title>PwnDongle v25</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -80,7 +80,6 @@ button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; }
 #crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
 #crop-canvas { display:block; margin:0 auto; max-width:100%; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
@@ -91,13 +90,14 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </style>
 </head>
 <body>
+<img id="gif-source" style="display:none">
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
-        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
-        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
+        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);e.p()">WIN</button>
+        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);e.p()">CTRL</button>
+        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);e.p()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
@@ -105,7 +105,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <div id="c-ms" class="content"><div id="pad" style="background:#0a0a0a;border:1px solid #333;height:40vh;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#444">TRACKPAD</div></div>
 <div id="c-ig" class="content">
-    <div class="file-btn"><button id="b-sel">SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
@@ -117,18 +117,12 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', air=false, history=[], isGif=false;
+let os='win', history=[], isGif=false;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
 document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
 el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
-}
-function uOS(){
-document.getElementById('b-win').className=(os=='win'?'toggled':'');
-document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
-document.getElementById('win-tools').style.display=(os=='win'?'flex':'none');
-document.getElementById('lin-tools').style.display=(os=='lin'?'flex':'none');
 }
 function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
 function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
@@ -136,7 +130,7 @@ let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
 // Trackpad
-let p=document.getElementById('pad'),lX=0,lY=0,isD=false,moved=false,tapT=0,fingers=0;
+let p=document.getElementById('pad'),lX=0,lY=0,isD=false,moved=false,tapT=0;
 p.onmousedown=e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
 document.onmouseup=()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;};
 p.onmousemove=e=>{if(isD){let dx=e.clientX-lX,dy=e.clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+dx+','+dy);lX=e.clientX;lY=e.clientY;}};
@@ -144,27 +138,27 @@ p.ontouchstart=e=>{isD=true;moved=false;lX=e.touches[0].clientX;lY=e.touches[0].
 p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
-let img=new Image(),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
+let gifEl=document.getElementById('gif-source'),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
-    isGif = (f.type === 'image/gif');
+    isGif=(f.type==='image/gif');
     let r=new FileReader(); r.onload=ev=>{
-        img.onload=()=>{
+        gifEl.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;
-            if(isGif) anim(); else drw();
-        }; img.src=ev.target.result;
+            scale=Math.max(160/gifEl.width,80/gifEl.height);oX=0;oY=0;rotation=0;
+            anim();
+        }; gifEl.src=ev.target.result;
     }; r.readAsDataURL(f);
 };
-function anim(){ if(isGif){ drw(); requestAnimationFrame(anim); } }
-function drw(){
+function anim(){ 
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
     ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(img,-img.width*scale/2,-img.height*scale/2,img.width*scale,img.height*scale);ctx.restore();
+    ctx.drawImage(gifEl,-gifEl.width*scale/2,-gifEl.height*scale/2,gifEl.width*scale,gifEl.height*scale);ctx.restore();
+    requestAnimationFrame(anim);
 }
-function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
+function z(v){scale+=v;} function rot(){rotation=(rotation+90)%360;}
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
-cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;drw();}};
+cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;}};
 cvs.ontouchstart=e=>{
     if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);
     else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}
@@ -172,8 +166,8 @@ cvs.ontouchstart=e=>{
 cvs.ontouchmove=e=>{
     if(e.touches.length===2){
         let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);
-        scale*=(d/pD);pD=d;drw();
-    }else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw();}
+        scale*=(d/pD);pD=d;
+    }else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}
     e.preventDefault();
 };
 function getB(){
@@ -186,21 +180,21 @@ function getB(){
     return b;
 }
 function upl(){
-    let upBtn = document.getElementById('b-up'); upBtn.disabled = true;
+    let upBtn=document.getElementById('b-up'); upBtn.disabled=true;
     if(isGif){
         wsS('I:gif');
         let f=0;
         let iv=setInterval(()=>{
             ws.send(getB()); f++;
-            document.getElementById('status').innerText='Capturing: '+f+'/3';
-            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; upBtn.disabled = false; }
-        },800);
+            document.getElementById('status').innerText='GIF: '+f+'/4';
+            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Done!'; upBtn.disabled=false; }
+        },600);
     }else{
         wsS('I:img');
         let b=getB(); ws.send(b);
         let thumb=cvs.toDataURL('image/jpeg',0.5);
         if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-        document.getElementById('status').innerText='Success!'; upBtn.disabled = false;
+        document.getElementById('status').innerText='Success!'; upBtn.disabled=false;
     }
 }
 function uHist(){
@@ -281,14 +275,14 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
         else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; gif_count = 0; }
         else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
-        else if (msg.startsWith("I:img")) { gif_mode = false; gif_count = 0; show_img = false; }
+        else if (msg.startsWith("I:img")) { gif_mode = false; gif_count = 0; show_img = true; }
     } else if (info->opcode == WS_BINARY) {
         if (info->index == 0) binaryOffset = 0;
         if (binaryOffset + len <= 25600) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 3) {
+                if(gif_mode && gif_count < 4) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
@@ -301,7 +295,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 void updateDisplay() {
     if (show_img) {
         if(gif_mode && gif_count > 0) {
-            if(millis() - last_gif_ms > 100) {
+            if(millis() - last_gif_ms > 150) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_storage[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
