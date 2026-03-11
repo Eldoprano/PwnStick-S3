@@ -24,11 +24,9 @@
 #define PIN_NUM_BCKL   38
 
 #define C_GREEN      0x07E0
-#define C_DARKGREEN  0x03E0
-#define C_DIM        0x01E0
 #define C_RED        0xF800
-#define C_WHITE      0xFFFF
 #define C_BLACK      0x0000
+#define C_WHITE      0xFFFF
 
 inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 
@@ -44,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (4 frames * 25.6KB = 102.4KB)
-static uint16_t gif_storage[4][160 * 80];
+// GIF Storage (3 frames max for absolute RAM safety)
+static uint16_t gif_storage[3][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -60,7 +58,6 @@ bool user_on_site = false;
 
 int cursorX = 80, cursorY = 40;
 int showCursorFrames = 0;
-unsigned long qrStartTime = 0;
 bool qrActive = false;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
@@ -69,7 +66,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v23</title>
+<title>PwnDongle v24</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -81,7 +78,6 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
-button.toggled { background:#0f0 !important; color:#000 !important; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; }
@@ -97,19 +93,17 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <body>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
-    <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
+    <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
+        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
+        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
+        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
-    <div id="win-tools" class="row"><button onclick="wsS('A:cad')" style="color:#f00;border-color:#f00">C-A-D</button><button onclick="wsS('A:lock')">LOCK</button></div>
-    <div id="lin-tools" class="row" style="display:none;"><button onclick="wsS('A:reisub')" style="color:#f00;border-color:#f00">REBOOT</button><button onclick="wsS('A:reisuo')" style="color:#f00;border-color:#f00">OFF</button></div>
     <button onclick="wsS('A:rick')">RICKROLL</button>
 </div>
-<div id="c-ms" class="content"><button id="b-air" onclick="tAir()">GYRO: OFF</button><div id="pad">TRACKPAD</div></div>
+<div id="c-ms" class="content"><div id="pad" style="background:#0a0a0a;border:1px solid #333;height:40vh;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#444">TRACKPAD</div></div>
 <div id="c-ig" class="content">
     <div class="file-btn"><button id="b-sel">SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
@@ -143,11 +137,11 @@ ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
 // Trackpad
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,moved=false,tapT=0,fingers=0;
-p.onmousedown=e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();fingers=1;};
+p.onmousedown=e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
 document.onmouseup=()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;};
 p.onmousemove=e=>{if(isD){let dx=e.clientX-lX,dy=e.clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+dx+','+dy);lX=e.clientX;lY=e.clientY;}};
-p.ontouchstart=e=>{isD=true;moved=false;fingers=e.touches.length;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
-p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(fingers>1?'r':'l'));isD=false;e.preventDefault();};
+p.ontouchstart=e=>{isD=true;moved=false;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
+p.ontouchend=e=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){let dx=e.touches[0].clientX-lX,dy=e.touches[0].clientY-lY;if(Math.abs(dx)>1||Math.abs(dy)>1)moved=true;wsS('M:'+Math.round(dx)+','+Math.round(dy));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
 let img=new Image(),scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),pD=0;
@@ -157,10 +151,12 @@ document.getElementById('img-f').onchange=e=>{
     let r=new FileReader(); r.onload=ev=>{
         img.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;drw();
+            scale=Math.max(160/img.width,80/img.height);oX=0;oY=0;rotation=0;
+            if(isGif) anim(); else drw();
         }; img.src=ev.target.result;
     }; r.readAsDataURL(f);
 };
+function anim(){ if(isGif){ drw(); requestAnimationFrame(anim); } }
 function drw(){
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
     ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rotation*Math.PI/180);
@@ -192,114 +188,36 @@ function getB(){
 function upl(){
     let upBtn = document.getElementById('b-up'); upBtn.disabled = true;
     if(isGif){
-        document.getElementById('status').innerText='Capturing Loop...';
         wsS('I:gif');
         let f=0;
         let iv=setInterval(()=>{
-            drw(); ws.send(getB()); f++;
-            document.getElementById('status').innerText='GIF Frame: '+f+'/4';
-            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Uploaded!'; upBtn.disabled = false; }
-        },600);
+            ws.send(getB()); f++;
+            document.getElementById('status').innerText='Capturing: '+f+'/3';
+            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; upBtn.disabled = false; }
+        },800);
     }else{
-        document.getElementById('status').innerText='Sending...';
+        wsS('I:img');
         let b=getB(); ws.send(b);
         let thumb=cvs.toDataURL('image/jpeg',0.5);
         if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-        setTimeout(()=>{document.getElementById('status').innerText='Success!'; upBtn.disabled = false;},500);
+        document.getElementById('status').innerText='Success!'; upBtn.disabled = false;
     }
 }
 function uHist(){
     let h=document.getElementById('ig-hist'); h.innerHTML='';
     history.forEach(x=>{
         let i=document.createElement('div'); i.className='hist-item'; i.style.backgroundImage=`url(${x.src})`;
-        i.onclick=()=>{ ws.send(x.data); document.getElementById('status').innerText='Restored!'; };
+        i.onclick=()=>{ wsS('I:img'); ws.send(x.data); };
         h.appendChild(i);
     });
 }
-function tAir(){if(!air&&typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){DeviceOrientationEvent.requestPermission().then(r=>{if(r==='granted')togA();}).catch(console.error);}else togA();}
-function togA(){air=!air;let b=document.getElementById('b-air');b.innerText='GYRO: '+(air?'ON':'OFF');b.className=air?'toggled':'';}
-window.ondeviceorientation=e=>{if(air){let x=Math.round((e.gamma||0)/2),y=Math.round(((e.beta||0)-45)/2);if(x||y)wsS('M:'+x+','+y);}};
 ws.onopen=()=>wsS('U:1');
 </script>
 </body>
 </html>
 )rawliteral";
 
-void runMacro(String c) {
-    Keyboard.releaseAll();
-    if(c=="term") {
-        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); }
-        else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); }
-    } else if(c=="calc") {
-        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); }
-        else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("gnome-calculator"); delay(50); Keyboard.write(KEY_RETURN); }
-    } else if(c=="cad") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_DELETE); delay(100); Keyboard.releaseAll(); }
-    else if(c=="lock") {
-        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('l'); delay(100); Keyboard.releaseAll(); }
-        else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('l'); delay(100); Keyboard.releaseAll(); }
-    } else if(c=="reisub" || c=="reisuo") {
-        Keyboard.press(KEY_LEFT_ALT); Keyboard.press(70);
-        const char* seq = (c=="reisub")?"reisub":"reisuo";
-        for(int i=0;seq[i];i++){delay(200); Keyboard.press(seq[i]); delay(100); Keyboard.release(seq[i]);}
-        delay(100); Keyboard.releaseAll();
-    } else if(c=="rick") {
-        if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); }
-        else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); }
-    }
-}
-
 static uint32_t binaryOffset = 0;
-void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
-    AwsFrameInfo *info = (AwsFrameInfo*)arg;
-    if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
-        data[len] = 0; String msg = (char*)data;
-        if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
-        else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
-        else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
-        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
-        else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
-        else if (msg.startsWith("M:")) {
-            int comma = msg.indexOf(',');
-            if (comma > 0) {
-                int x = msg.substring(2, comma).toInt(); int y = msg.substring(comma+1).toInt();
-                Mouse.move(x, y); cursorX += x; cursorY += y;
-                if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
-                if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
-                showCursorFrames = 10;
-            }
-        } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
-            char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
-            if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
-        } else if (msg.startsWith("U:")) {
-            char b = msg.charAt(2);
-            if(b == '1') { user_on_site = true; qrActive = false; }
-            else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
-        } else if (msg.startsWith("H:")) {
-            int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
-            uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-            if(st) Keyboard.press(k); else { Keyboard.release(k); delay(100); Keyboard.write(0); }
-        } else if (msg.startsWith("P:")) {
-            String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-            Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
-        } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
-        else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-        else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; gif_count = 0; }
-        else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
-    } else if (info->opcode == WS_BINARY) {
-        if (info->index == 0) binaryOffset = 0;
-        if (binaryOffset + len <= 25600) {
-            memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
-            binaryOffset += len;
-            if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 4) {
-                    memcpy(gif_storage[gif_count], custom_img_buf, 25600);
-                    gif_count++;
-                }
-                show_img = true;
-            }
-        }
-    }
-}
 
 void drawChar(int x, int y, char c, uint16_t color, int scale) {
     if (c < 0 || c > 255) return;
@@ -323,10 +241,67 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
     while (*str) { drawChar(x, y, *str, color, scale); x += 6 * scale; str++; }
 }
 
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+    AwsFrameInfo *info = (AwsFrameInfo*)arg;
+    if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
+        data[len] = 0; String msg = (char*)data;
+        if (msg.startsWith("K:")) { Keyboard.print(msg.substring(2)); setLastKey(msg.substring(2)); }
+        else if (msg.startsWith("V:")) { Keyboard.print(msg.substring(2)); setLastKey("PASTE"); }
+        else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
+        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
+        else if (msg.startsWith("M:")) {
+            int comma = msg.indexOf(',');
+            if (comma > 0) {
+                int x = msg.substring(2, comma).toInt(); int y = msg.substring(comma+1).toInt();
+                Mouse.move(x, y); cursorX += x; cursorY += y;
+                if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
+                if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
+                showCursorFrames = 10;
+            }
+        } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
+            char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
+            if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
+        } else if (msg.startsWith("U:")) {
+            char b = msg.charAt(2);
+            if(b == '1') { user_on_site = true; }
+            else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
+        } else if (msg.startsWith("H:")) {
+            int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
+            uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            if(st) Keyboard.press(k); else { Keyboard.release(k); delay(10); Keyboard.write(0); }
+        } else if (msg.startsWith("P:")) {
+            String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
+        } else if (msg.startsWith("A:")) { 
+            String act = msg.substring(2); Keyboard.releaseAll();
+            if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
+            else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
+            setLastKey(act); 
+        }
+        else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
+        else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; gif_count = 0; }
+        else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
+        else if (msg.startsWith("I:img")) { gif_mode = false; gif_count = 0; show_img = false; }
+    } else if (info->opcode == WS_BINARY) {
+        if (info->index == 0) binaryOffset = 0;
+        if (binaryOffset + len <= 25600) {
+            memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
+            binaryOffset += len;
+            if (binaryOffset == 25600) {
+                if(gif_mode && gif_count < 3) {
+                    memcpy(gif_storage[gif_count], custom_img_buf, 25600);
+                    gif_count++;
+                }
+                show_img = true;
+            }
+        }
+    }
+}
+
 void updateDisplay() {
     if (show_img) {
         if(gif_mode && gif_count > 0) {
-            if(millis() - last_gif_ms > 200) {
+            if(millis() - last_gif_ms > 100) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_storage[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
@@ -336,45 +311,33 @@ void updateDisplay() {
         }
     } else {
         int clients = WiFi.softAPgetStationNum();
-        if (clients > 0 && !user_on_site && !qrActive) { qrActive = true; qrStartTime = millis(); }
-        if (clients == 0) { user_on_site = false; qrActive = false; }
-        if (qrActive) {
-            for(int i=0; i<160*80; i++) screen_buf[i] = SWAP(C_BLACK);
-            int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
-            for(int y=0; y<qr_size; y++) {
-                for(int x=0; x<qr_size; x++) {
-                    uint16_t c = qr_data[y * qr_size + x] ? C_BLACK : C_WHITE;
-                    for(int sy=0; sy<sc; sy++) for(int sx=0; sx<sc; sx++) screen_buf[(oy + y*sc + sy)*160 + (ox + x*sc + sx)] = SWAP(c);
-                }
+        if (clients > 0 && !user_on_site) { user_on_site = true; }
+        if (clients == 0) { user_on_site = false; }
+        static int drops[160]; static bool init = false;
+        if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
+        for(int i=0; i<160*80; i++) {
+            uint16_t c = screen_buf[i];
+            if (c == SWAP(C_RED)) screen_buf[i] = SWAP(C_BLACK);
+            else if (c != SWAP(C_BLACK)) {
+                uint16_t ns = SWAP(c);
+                uint16_t r = (ns >> 11) & 0x1F; uint16_t g = (ns >> 5) & 0x3F; uint16_t b = ns & 0x1F;
+                if(g > 2) g -= 2; else g = 0; if(r > 4) r -= 4; else r = 0; if(b > 4) b -= 4; else b = 0;
+                screen_buf[i] = SWAP((r << 11) | (g << 5) | b);
             }
-        } else {
-            static int drops[160]; static bool init = false;
-            if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
-            for(int i=0; i<160*80; i++) {
-                uint16_t c = screen_buf[i];
-                if (c == SWAP(C_RED)) screen_buf[i] = SWAP(C_BLACK);
-                else if (c != SWAP(C_BLACK)) {
-                    uint16_t ns = SWAP(c);
-                    uint16_t r = (ns >> 11) & 0x1F; uint16_t g = (ns >> 5) & 0x3F; uint16_t b = ns & 0x1F;
-                    if(g > 2) g -= 2; else g = 0; if(r > 4) r -= 4; else r = 0; if(b > 4) b -= 4; else b = 0;
-                    screen_buf[i] = SWAP((r << 11) | (g << 5) | b);
-                }
+        }
+        for(int x=0; x<160; x+=6) {
+            if(drops[x] >= 0 && drops[x] < 80) {
+                screen_buf[drops[x] * 160 + x] = SWAP(C_GREEN);
+                if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(C_GREEN);
             }
-            for(int x=0; x<160; x+=6) {
-                if(drops[x] >= 0 && drops[x] < 80) {
-                    screen_buf[drops[x] * 160 + x] = SWAP(C_GREEN);
-                    if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(C_GREEN);
-                }
-                drops[x] += 1; if(drops[x] >= 80) drops[x] = random(-40, 0);
-            }
-            char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
-            drawString(2, 2, info, C_WHITE, 1);
-            unsigned long age = millis() - lastKeyTime;
-            if (age < 2000 && lastKey.length() > 0) {
-                int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
-                int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
-                drawString(tx, ty, lastKey.c_str(), C_GREEN, sc);
-            }
+            drops[x] += 1; if(drops[x] >= 80) drops[x] = random(-40, 0);
+        }
+        char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
+        drawString(2, 2, info, C_WHITE, 1);
+        if (millis() - lastKeyTime < 2000 && lastKey.length() > 0) {
+            int len = lastKey.length(), sc = (len > 3) ? 2 : 4;
+            int tx = (160 - (len * 6 * sc)) / 2, ty = (80 - 8 * sc) / 2;
+            drawString(tx, ty, lastKey.c_str(), C_GREEN, sc);
         }
     }
     if (showCursorFrames > 0) {
