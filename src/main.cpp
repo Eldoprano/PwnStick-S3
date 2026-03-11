@@ -42,8 +42,7 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Dynamic GIF Storage
-static uint16_t* gif_storage[15]; // Support up to 15 frames if RAM allows
+static uint16_t* gif_storage[15];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -65,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v40</title>
+<title>PwnDongle v41</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -80,8 +79,8 @@ button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; font-weight:bold; }
-#crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
-#crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
+#crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:10px auto; background:#050505; position:relative; overflow:hidden; touch-action:none; aspect-ratio:160/80; }
+#crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
@@ -120,7 +119,7 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:5
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', history=[], isGif=false, gifBytes=null;
+let os='win', isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -141,7 +140,7 @@ function mD(m,el){
 function mU(m,el){
     if(el.dataset.h){
         clearTimeout(el.dataset.h); el.dataset.h=0;
-        wsS('P:'+m); // Just a quick tap
+        wsS('P:'+m);
     }
 }
 let ta=document.getElementById('ta');
@@ -176,10 +175,11 @@ function drw(clr){
     ctx.restore();
 }
 function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
+function gR(){ return 160 / cvs.offsetWidth; }
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
-cvs.onmousemove=e=>{if(isD){oX+=e.clientX-lX;oY+=e.clientY-lY;lX=e.clientX;lY=e.clientY;drw(true);}};
+cvs.onmousemove=e=>{if(isD){let r=gR();oX+=(e.clientX-lX)*r;oY+=(e.clientY-lY)*r;lX=e.clientX;lY=e.clientY;drw(true);}};
 cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
-cvs.ontouchmove=e=>{if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw(true);}else if(isD){oX+=e.touches[0].clientX-lX;oY+=e.touches[0].clientY-lY;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw(true);}e.preventDefault();};
+cvs.ontouchmove=e=>{let r=gR();if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw(true);}else if(isD){oX+=(e.touches[0].clientX-lX)*r;oY+=(e.touches[0].clientY-lY)*r;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw(true);}e.preventDefault();};
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -221,7 +221,7 @@ async function upl(){
                     curImg.src=filtered[i];
                 });
                 await new Promise(r=>setTimeout(r,400));
-                document.getElementById('status').innerText='Uploading: '+(i+1)+'/'+filtered.length;
+                document.getElementById('status').innerText='Beam '+(i+1)+'/'+filtered.length;
             }
             document.getElementById('status').innerText='Animated!';
             curImg.src=URL.createObjectURL(new Blob([gifBytes]));
