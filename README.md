@@ -1,8 +1,8 @@
 # PwnStick-S3
 
-PwnStick-S3 is a versatile, wireless HID injection and media platform built specifically for the **LILYGO® T-Dongle-S3** (ESP32-S3). It transforms the dongle into a standalone access point that hosts a high-performance web interface for real-time remote control and visual manipulation.
+PwnStick-S3 is a versatile, wireless HID injection and media platform built specifically for the **LILYGO® T-Dongle-S3** (ESP32-S3). It transforms the dongle into a standalone access point that hosts a web interface for real-time remote control and dongle screen manipulation. 
 
-**Hardware:** [Buy LILYGO® T-Dongle-S3 on AliExpress](https://ja.aliexpress.com/item/1005004860003638.html)
+**Hardware:** [Buy LILYGO® T-Dongle-S3 (With LCD) on AliExpress](https://ja.aliexpress.com/item/1005004860003638.html)
 
 ---
 
@@ -13,16 +13,11 @@ PwnStick-S3 is a versatile, wireless HID injection and media platform built spec
 *   **Precision Trackpad:** Mobile-friendly touch area for remote mouse control, including left/right click gestures.
 *   **Sticky Modifiers:** Toggleable WIN, CTRL, and ALT keys for executing complex system shortcuts (e.g., `CTRL+ALT+DEL`, `ALT+F4`).
 
-### 2. Built-in OS Macros
-*   **Quick Payloads:** One-tap buttons to trigger common tasks on target systems (Windows and Linux supported).
-*   **Macros included:** Open Terminal, Launch Calculator, and the classic Rickroll.
-
-### 3. Real-time Visuals & Feedback
+### 2. Real-time Visuals & Feedback
 *   **Status Display:** The integrated 0.96" ST7735 LCD provides a "Matrix rain" visual effect with live overlays for typed keys and mouse movement.
 *   **QR Connectivity:** Displays an auto-generated QR code on boot for instant smartphone connection to the captive portal.
-*   **RGB Feedback:** Onboard WS2812 LED provides system status alerts.
 
-### 4. Media Beaming Engine
+### 3. Media Beaming Engine
 *   **Image Uploader:** Upload and crop static images directly from your browser to the dongle screen.
 *   **GIF Flipbook:** Specialized binary parser that extracts and loops animated GIF frames on the device hardware.
 *   **On-Device Editor:** Full support for zooming, rotating, and panning images/GIFs before "beaming" them to the LCD.
@@ -31,13 +26,28 @@ PwnStick-S3 is a versatile, wireless HID injection and media platform built spec
 
 ## Installation
 
-This project is built using **PlatformIO**.
+This project is built using **PlatformIO**. You can upload the firmware using either the VS Code GUI or the Command Line Interface (CLI).
 
+### Option A: VS Code (GUI)
 1.  Clone this repository.
-2.  Open the project folder in VS Code with the PlatformIO extension installed.
-3.  Connect your T-Dongle-S3.
-4.  Run the **Upload** task (`pio run -t upload`).
-5.  The device will reboot and host a WiFi AP named `PwnDongle`.
+2.  Open the project folder in VS Code with the [PlatformIO extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) installed.
+3.  Connect your T-Dongle-S3 via USB.
+4.  Click the **Upload** icon (arrow) in the bottom PlatformIO toolbar.
+
+### Option B: Command Line (CLI)
+1.  Ensure you have **Python** installed, then install the **PlatformIO Core**:
+    ```bash
+    pip install platformio
+    ```
+2.  Connect your T-Dongle-S3 via USB.
+3.  Navigate to the project directory in your terminal.
+4.  Run the compile and upload command:
+    ```bash
+    pio run -t upload
+    ```
+    *If you have multiple devices connected, you may need to specify the port: `pio run -t upload --upload-port /dev/ttyACM0`.*
+
+**After Upload:** The device will reboot and host a WiFi AP named **`PwnDongle`**. Connect to it using your phone to access the interface.
 
 ---
 
