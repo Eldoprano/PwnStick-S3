@@ -51,9 +51,7 @@ This project is built using **PlatformIO**. You can upload the firmware using ei
 
 ---
 
-## Configuration & Customization
-
-The project is designed to be easily modified to fit specific use cases:
+## Where is what
 
 *   **Logic & UI:** The core application, including the embedded HTML/JavaScript dashboard and the HID logic, is located in `src/main.cpp`.
 *   **QR Code:** The hardcoded connection QR code matrix is stored in `src/qr_code.h`.
