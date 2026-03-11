@@ -107,9 +107,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
         <button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button>
     </div>
     <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');e.p()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');e.p()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');e.p()">ALT</button>
+        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');event.preventDefault()">WIN</button>
+        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');event.preventDefault()">CTRL</button>
+        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste here..."></textarea>
     <div class="row" style="margin-top:10px">
@@ -131,9 +131,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <button id="b-air" onclick="tAir()">GYRO MOUSE: OFF</button>
     <div id="pad">TRACKPAD</div>
     <div class="row" style="margin-top:10px;">
-        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');e.p()">LEFT</button>
-        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');e.p()">MID</button>
-        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');e.p()">RIGHT</button>
+        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');event.preventDefault()">LEFT</button>
+        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');event.preventDefault()">MID</button>
+        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');event.preventDefault()">RIGHT</button>
     </div>
 </div>
 
@@ -143,7 +143,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <div id="progress-container"><div id="progress-bar"></div></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
-        <div class="row"><button onclick="z(-0.1)">- ZOOM</button><button onclick="z(0.1)">+ ZOOM</button><button onclick="rot()">ROT 90</button></div>
+        <div class="row"><button onclick="z(-0.05)">- ZOOM</button><button onclick="z(0.05)">+ ZOOM</button><button onclick="rot()">ROT 90</button></div>
         <button onclick="uploadImg()">UPLOAD TO DONGLE</button>
     </div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR SCREEN</button>
@@ -259,8 +259,13 @@ function uploadImg(){
         p+=10; document.getElementById('progress-bar').style.width=p+'%';
         if(p>=100){
             clearInterval(iv);
-            ws.send(b);
-            document.getElementById('status').innerText='Success!';
+            if(ws.readyState===1){
+                ws.send(b);
+                document.getElementById('status').innerText='Success!';
+            } else {
+                dbg('WS not open');
+                document.getElementById('status').innerText='Error: WS Closed';
+            }
             setTimeout(()=>{document.getElementById('progress-container').style.display='none';},1000);
         }
     },50);
@@ -294,44 +299,49 @@ void runMacro(String c) {
     }
 }
 
+static uint32_t binaryOffset = 0;
+
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     AwsFrameInfo *info = (AwsFrameInfo*)arg;
-    if (info->final && info->index == 0 && info->len == len) {
-        if (info->opcode == WS_TEXT) {
-            data[len] = 0; String msg = (char*)data;
-            if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
-            else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
-            else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
-            else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
-            else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
-            else if (msg.startsWith("M:")) {
-                int comma = msg.indexOf(',');
-                if (comma > 0) {
-                    int x = msg.substring(2, comma).toInt(); int y = msg.substring(comma+1).toInt();
-                    Mouse.move(x, y); cursorX += x; cursorY += y;
-                    if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
-                    if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
-                    showCursorFrames = 10;
-                }
-            } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
-                char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
-                if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
-            } else if (msg.startsWith("U:")) {
-                char b = msg.charAt(2);
-                if(b == '1') { user_on_site = true; qrActive = false; }
-                else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
-            } else if (msg.startsWith("H:")) {
-                int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
-                uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(100); Keyboard.write(0); }
-            } else if (msg.startsWith("P:")) {
-                String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
-            } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
-            else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-            else if (msg.startsWith("I:clear")) { show_img = false; }
-        } else if (info->opcode == WS_BINARY && len == 25600) {
-            memcpy(custom_img_buf, data, 25600); show_img = true;
+    if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
+        data[len] = 0; String msg = (char*)data;
+        if (msg.startsWith("K:")) { String k = msg.substring(2); Keyboard.print(k); setLastKey(k); }
+        else if (msg.startsWith("V:")) { String v = msg.substring(2); Keyboard.print(v); setLastKey("PASTE"); }
+        else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
+        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
+        else if (msg.startsWith("T:")) { Keyboard.write(KEY_TAB); setLastKey("TAB"); }
+        else if (msg.startsWith("M:")) {
+            int comma = msg.indexOf(',');
+            if (comma > 0) {
+                int x = msg.substring(2, comma).toInt(); int y = msg.substring(comma+1).toInt();
+                Mouse.move(x, y); cursorX += x; cursorY += y;
+                if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
+                if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
+                showCursorFrames = 10;
+            }
+        } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
+            char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
+            if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
+        } else if (msg.startsWith("U:")) {
+            char b = msg.charAt(2);
+            if(b == '1') { user_on_site = true; qrActive = false; Serial.println("User Connected"); }
+            else { uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
+        } else if (msg.startsWith("H:")) {
+            int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
+            uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            if(st) Keyboard.press(k); else { Keyboard.release(k); delay(100); Keyboard.write(0); }
+        } else if (msg.startsWith("P:")) {
+            String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
+        } else if (msg.startsWith("A:")) { String act = msg.substring(2); runMacro(act); setLastKey(act); }
+        else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
+        else if (msg.startsWith("I:clear")) { show_img = false; }
+    } else if (info->opcode == WS_BINARY) {
+        if (info->index == 0) binaryOffset = 0;
+        if (binaryOffset + len <= 25600) {
+            memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
+            binaryOffset += len;
+            if (binaryOffset == 25600) { show_img = true; Serial.println("Image Complete"); }
         }
     }
 }
@@ -377,7 +387,7 @@ void updateDisplay() {
             }
         } else {
             static int drops[160]; static bool init = false;
-            if (!init) { for(int i=0; i<160; i++) drops[i] = random(-40, 0); init = true; }
+            if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             
             for(int i=0; i<160*80; i++) {
                 uint16_t c = screen_buf[i];
@@ -396,7 +406,7 @@ void updateDisplay() {
                     if(x+1 < 160) screen_buf[drops[x] * 160 + x + 1] = SWAP(RGB_GREEN);
                 }
                 drops[x] += 1;
-                if(drops[x] >= 80) drops[x] = random(-20, 0);
+                if(drops[x] >= 80) drops[x] = random(-40, 0);
             }
             
             char info[32]; sprintf(info, "192.168.4.1 U:%d", clients);
