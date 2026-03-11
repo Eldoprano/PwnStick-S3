@@ -42,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (4 frames * 25.6KB = 102.4KB)
-static uint16_t gif_storage[4][160 * 80];
+// GIF Storage (3 frames is the stable limit for this RAM)
+static uint16_t gif_storage[3][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -58,7 +58,6 @@ bool user_on_site = false;
 
 int cursorX = 80, cursorY = 40;
 int showCursorFrames = 0;
-bool qrActive = false;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
 
@@ -66,16 +65,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v25</title>
+<title>PwnDongle v26</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
+body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
-.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; font-size:14px; }
+.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
 .row { display:flex; gap:10px; }
@@ -146,15 +145,15 @@ document.getElementById('img-f').onchange=e=>{
         gifEl.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
             scale=Math.max(160/gifEl.width,80/gifEl.height);oX=0;oY=0;rotation=0;
-            anim();
+            if(isGif) anim(); else drw();
         }; gifEl.src=ev.target.result;
     }; r.readAsDataURL(f);
 };
-function anim(){ 
+function anim(){ if(isGif){ drw(); requestAnimationFrame(anim); } }
+function drw(){
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
     ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rotation*Math.PI/180);
     ctx.drawImage(gifEl,-gifEl.width*scale/2,-gifEl.height*scale/2,gifEl.width*scale,gifEl.height*scale);ctx.restore();
-    requestAnimationFrame(anim);
 }
 function z(v){scale+=v;} function rot(){rotation=(rotation+90)%360;}
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
@@ -186,9 +185,9 @@ function upl(){
         let f=0;
         let iv=setInterval(()=>{
             ws.send(getB()); f++;
-            document.getElementById('status').innerText='GIF: '+f+'/4';
-            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Done!'; upBtn.disabled=false; }
-        },600);
+            document.getElementById('status').innerText='Recording: '+f+'/3';
+            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='Loop Active!'; upBtn.disabled=false; }
+        },1000);
     }else{
         wsS('I:img');
         let b=getB(); ws.send(b);
@@ -282,11 +281,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 4) {
+                if(gif_mode && gif_count < 3) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
-                show_img = true;
+                if (!gif_mode) show_img = true; // Only show static images immediately
+                else if (gif_count > 1) show_img = true; // Start loop after 2+ frames
             }
         }
     }
@@ -294,7 +294,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 
 void updateDisplay() {
     if (show_img) {
-        if(gif_mode && gif_count > 0) {
+        if(gif_mode && gif_count > 1) {
             if(millis() - last_gif_ms > 150) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_storage[gif_idx], 25600);
