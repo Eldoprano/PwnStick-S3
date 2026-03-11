@@ -84,7 +84,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#dbg { position:fixed; bottom:0; left:0; right:0; height:80px; background:#111; color:#f00; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #300; pointer-events:none; }
+#dbg { position:fixed; bottom:0; left:0; right:0; height:80px; background:#111; color:#f00; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #300; user-select:text; -webkit-user-select:text; }
 </style>
 </head>
 <body>
@@ -174,29 +174,38 @@ async function upl(){
             let header=gifBytes.slice(0,13+gctSize);
             let frames=[], pos=13+gctSize;
             while(pos<gifBytes.length-1 && frames.length<3){
-                if(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9){
-                    let start=pos; pos+=2;
-                    while(pos<gifBytes.length-1 && !(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9)) pos++;
-                    let f=new Uint8Array(header.length + (pos-start) + 1);
-                    f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
-                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
+                let b = gifBytes[pos];
+                if(b===0x21){ // Extension
+                    let start=pos; pos+=2; // skip 21 and label
+                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; // skip blocks
+                    pos++; // skip 00
+                    if(gifBytes[pos]===0x2C){ // Image Descriptor follows
+                        let imgStart=pos; pos+=10; // header
+                        if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); // LCT
+                        pos++; // skip LZW size
+                        while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; // skip pixels
+                        pos++; // skip 00
+                        let f=new Uint8Array(header.length + (pos-start) + 1);
+                        f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
+                        frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
+                    }
                 } else pos++;
             }
             log("Found "+frames.length+" frames");
             for(let i=0; i<frames.length; i++){
                 await new Promise((res,rej)=>{
-                    curImg.onload=()=>{ log("Loaded frame "+(i+1)); drw(); ws.send(getB()); res(); };
+                    curImg.onload=()=>{ log("Frame "+(i+1)+" OK"); drw(); ws.send(getB()); res(); };
                     curImg.onerror=()=>rej("Frame "+i+" fail");
                     curImg.src=frames[i];
                 });
-                await new Promise(r=>setTimeout(r,500));
+                await new Promise(r=>setTimeout(r,1200));
             }
             document.getElementById('status').innerText='GIF Done!';
         }else{
             wsS('I:img'); ws.send(getB());
             document.getElementById('status').innerText='Success!';
         }
-    }catch(e){log("UPL FAIL: "+e);}
+    }catch(e){log("FAIL: "+e);}
     btn.disabled=false;
 }
 ws.onopen=()=>wsS('U:1');
@@ -309,6 +318,7 @@ void updateDisplay() {
                 }
             }
         } else {
+            if (clients == 0) { user_on_site = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
