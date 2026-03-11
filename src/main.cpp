@@ -42,7 +42,7 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (5 frames max)
+// Static GIF Storage (5 frames max for RAM stability)
 static uint16_t gif_storage[5][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
@@ -65,18 +65,19 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v38</title>
+<title>PwnDongle v39</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
 .tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
-.content { padding:10px; display:none; height:calc(100vh - 120px); overflow-y:auto; box-sizing:border-box; }
+.content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; }
@@ -85,14 +86,15 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#dbg { position:fixed; bottom:0; left:0; right:0; height:60px; background:#111; color:#0a0; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #222; user-select:text; -webkit-user-select:text; }
+.opt-box { background:#111; border:1px solid #333; padding:10px; margin-top:10px; display:none; flex-direction:column; gap:5px; text-align:left; }
+.opt-row { display:flex; justify-content:space-between; align-items:center; }
+input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:50px; padding:5px; }
 </style>
 </head>
 <body>
-<div id="dbg">System Ready...</div>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
-    <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
+    <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
         <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
         <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
@@ -104,9 +106,13 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <div id="c-ms" class="content"><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
-    <div class="file-btn"><button id="b-sel">SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button id="b-sel">SELECT IMG</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
+    <div id="gif-opts" class="opt-box">
+        <div class="opt-row"><span>Frames (1-5):</span><input type="number" id="g-cnt" value="5" min="1" max="5"></div>
+        <div class="opt-row"><span>Skip Every:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
+    </div>
     <div id="ig-controls" style="display:none;margin-top:10px">
         <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
         <button id="b-up" onclick="upl()">UPLOAD</button>
@@ -114,15 +120,17 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
 </div>
 <script>
-function log(m){let d=document.getElementById('dbg');d.innerText+="\n"+m;d.scrollTop=d.scrollHeight;}
-window.onerror=(m,s,l,c,e)=>log("ERR: "+m+" L"+l);
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', history=[], isGif=false, gifBytes=null;
+let os='win', isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
 document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
 el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
+}
+function uOS(){
+document.getElementById('b-win').className=(os=='win'?'toggled':'');
+document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
 }
 function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
 function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
@@ -134,9 +142,9 @@ let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
 p.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
 document.onmouseup=()=>{if(isD&&Date.now()-tapT<200)wsS('C:l');isD=false;};
 p.onmousemove=e=>{if(isD){wsS('M:'+(e.clientX-lX)+','+(e.clientY-lY));lX=e.clientX;lY=e.clientY;}};
-p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();e.preventDefault();};
-p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
-p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
+p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();};
+p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;};
+p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
 // Image logic
 let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0;
 document.getElementById('img-f').onchange=e=>{
@@ -146,6 +154,7 @@ document.getElementById('img-f').onchange=e=>{
         gifBytes=new Uint8Array(ev.target.result);
         curImg.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
+            document.getElementById('gif-opts').style.display=isGif?'flex':'none';
             scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw(true);
         }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
     }; r.readAsArrayBuffer(f);
@@ -174,12 +183,11 @@ async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
     try{
         if(isGif){
-            log("Slicing 5 frame flipbook...");
             wsS('I:gif');
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
             let frames=[], pos=13+gctSize, curF=[];
-            while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<10){
+            while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<50){
                 let b = gifBytes[pos];
                 if(b===0x21){ let st=pos; pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; if(gifBytes[st+1]===0xF9) curF.push(gifBytes.slice(st,pos)); }
                 else if(b===0x2C){
@@ -192,22 +200,23 @@ async function upl(){
                     frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'}))); curF=[];
                 } else pos++;
             }
-            let skipped = frames.filter((_,i)=>i%2==0).slice(0,5);
-            log("Parser found "+frames.length+" total, keeping "+skipped.length);
+            let maxFrames = parseInt(document.getElementById('g-cnt').value)||5;
+            let skip = parseInt(document.getElementById('g-skp').value)||0;
+            let filtered = [];
+            for(let i=0; i<frames.length && filtered.length<maxFrames; i+=(skip+1)) filtered.push(frames[i]);
             ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
-            for(let i=0; i<skipped.length; i++){
+            for(let i=0; i<filtered.length; i++){
                 await new Promise((res)=>{
-                    curImg.onload=()=>{ drw(false); ws.send(getB()); log("Sent Frame "+(i+1)); res(); };
-                    curImg.src=skipped[i];
+                    curImg.onload=()=>{ drw(false); ws.send(getB()); res(); };
+                    curImg.src=filtered[i];
                 });
                 await new Promise(r=>setTimeout(r,400));
             }
-            document.getElementById('status').innerText='Loop Active!';
-            curImg.src=URL.createObjectURL(new Blob([gifBytes]));
+            document.getElementById('status').innerText='Animated!';
         }else{
             wsS('I:img'); ws.send(getB()); document.getElementById('status').innerText='Success!';
         }
-    }catch(e){log("FAIL: "+e);}
+    }catch(e){console.error(e);}
     btn.disabled=false;
 }
 ws.onopen=()=>wsS('U:1');
