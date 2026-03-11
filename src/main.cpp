@@ -42,7 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-static uint16_t gif_storage[3][160 * 80];
+// Static GIF Storage (4 frames is the absolute stable limit)
+static uint16_t gif_storage[4][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -64,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v33</title>
+<title>PwnDongle v34</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -84,11 +85,11 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-#dbg { position:fixed; bottom:0; left:0; right:0; height:80px; background:#111; color:#f00; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #300; user-select:text; -webkit-user-select:text; }
+#dbg { position:fixed; bottom:0; left:0; right:0; height:60px; background:#111; color:#0a0; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #222; user-select:text; -webkit-user-select:text; }
 </style>
 </head>
 <body>
-<div id="dbg">Console Ready...</div>
+<div id="dbg">System Ready...</div>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
@@ -114,9 +115,8 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <script>
 function log(m){let d=document.getElementById('dbg');d.innerText+="\n"+m;d.scrollTop=d.scrollHeight;}
-window.onerror=(m,s,l,c,e)=>log("ERR: "+m+" L"+l);
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', isGif=false, gifBytes=null;
+let os='win', history=[], isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -145,16 +145,17 @@ document.getElementById('img-f').onchange=e=>{
         gifBytes=new Uint8Array(ev.target.result);
         curImg.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw();
+            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw(true);
         }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
     }; r.readAsArrayBuffer(f);
 };
-function drw(){
-    ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
-    ctx.save();ctx.translate(160/2+oX,80/2+oY);ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);ctx.restore();
+function drw(clr){
+    if(clr){ ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); }
+    ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
+    ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
+    ctx.restore();
 }
-function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
+function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -168,39 +169,33 @@ async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
     try{
         if(isGif){
-            log("Slicing GIF...");
+            log("Parsing GIF layers...");
             wsS('I:gif');
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
             let frames=[], pos=13+gctSize;
-            while(pos<gifBytes.length-1 && frames.length<3){
-                let b = gifBytes[pos];
-                if(b===0x21){ // Extension
-                    let start=pos; pos+=2; // skip 21 and label
-                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; // skip blocks
-                    pos++; // skip 00
-                    if(gifBytes[pos]===0x2C){ // Image Descriptor follows
-                        let imgStart=pos; pos+=10; // header
-                        if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); // LCT
-                        pos++; // skip LZW size
-                        while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; // skip pixels
-                        pos++; // skip 00
-                        let f=new Uint8Array(header.length + (pos-start) + 1);
-                        f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
-                        frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
-                    }
+            while(pos<gifBytes.length-1 && frames.length<4){
+                let start=pos;
+                if(gifBytes[pos]===0x21){ pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; }
+                if(gifBytes[pos]===0x2C){
+                    pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
+                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++;
+                    let f=new Uint8Array(header.length + (pos-start) + 1);
+                    f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
+                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
                 } else pos++;
             }
-            log("Found "+frames.length+" frames");
+            log("Found "+frames.length+" unique layers");
             for(let i=0; i<frames.length; i++){
-                await new Promise((res,rej)=>{
-                    curImg.onload=()=>{ log("Frame "+(i+1)+" OK"); drw(); ws.send(getB()); res(); };
-                    curImg.onerror=()=>rej("Frame "+i+" fail");
-                    curImg.src=frames[i];
+                await new Promise(res=>{
+                    curImg.onload=()=>{
+                        drw(i===0); // Only clear on frame 1, then draw cumulatively
+                        ws.send(getB()); log("Uploaded Frame "+(i+1)); res();
+                    }; curImg.src=frames[i];
                 });
-                await new Promise(r=>setTimeout(r,1200));
+                await new Promise(r=>setTimeout(r,400));
             }
-            document.getElementById('status').innerText='GIF Done!';
+            document.getElementById('status').innerText='Loop Active!';
         }else{
             wsS('I:img'); ws.send(getB());
             document.getElementById('status').innerText='Success!';
@@ -284,7 +279,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 3) {
+                if(gif_mode && gif_count < 4) {
                     memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
