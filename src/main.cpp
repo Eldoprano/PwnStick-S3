@@ -44,8 +44,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// GIF Engine (4 frames max to stay safe in RAM)
-static uint16_t* gif_frames[4] = {NULL, NULL, NULL, NULL};
+// Static GIF Storage (4 frames * 25.6KB = 102.4KB)
+static uint16_t gif_storage[4][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -69,7 +69,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v22</title>
+<title>PwnDongle v23</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -80,6 +80,7 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .content.active { display:block; }
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
+button:disabled { border-color:#333; color:#333; }
 button.toggled { background:#0f0 !important; color:#000 !important; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
@@ -110,7 +111,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <div id="c-ms" class="content"><button id="b-air" onclick="tAir()">GYRO: OFF</button><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
-    <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button id="b-sel">SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="ig-controls" style="display:none;margin-top:10px">
@@ -189,21 +190,22 @@ function getB(){
     return b;
 }
 function upl(){
+    let upBtn = document.getElementById('b-up'); upBtn.disabled = true;
     if(isGif){
-        document.getElementById('status').innerText='Capturing 4 Frames...';
+        document.getElementById('status').innerText='Capturing Loop...';
         wsS('I:gif');
         let f=0;
         let iv=setInterval(()=>{
             drw(); ws.send(getB()); f++;
-            document.getElementById('status').innerText='Capturing: '+(f*25)+'%';
-            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; }
-        },250);
+            document.getElementById('status').innerText='GIF Frame: '+f+'/4';
+            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Uploaded!'; upBtn.disabled = false; }
+        },600);
     }else{
         document.getElementById('status').innerText='Sending...';
         let b=getB(); ws.send(b);
         let thumb=cvs.toDataURL('image/jpeg',0.5);
         if(!history.find(x=>x.src==thumb)){history.unshift({src:thumb,data:b});if(history.length>10)history.pop();uHist();}
-        setTimeout(()=>document.getElementById('status').innerText='Ready!',500);
+        setTimeout(()=>{document.getElementById('status').innerText='Success!'; upBtn.disabled = false;},500);
     }
 }
 function uHist(){
@@ -290,8 +292,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             binaryOffset += len;
             if (binaryOffset == 25600) {
                 if(gif_mode && gif_count < 4) {
-                    if(!gif_frames[gif_count]) gif_frames[gif_count] = (uint16_t*)malloc(25600);
-                    if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], custom_img_buf, 25600);
+                    memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
                 show_img = true;
@@ -327,7 +328,7 @@ void updateDisplay() {
         if(gif_mode && gif_count > 0) {
             if(millis() - last_gif_ms > 200) {
                 last_gif_ms = millis();
-                memcpy(screen_buf, gif_frames[gif_idx], 25600);
+                memcpy(screen_buf, gif_storage[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
             }
         } else {
