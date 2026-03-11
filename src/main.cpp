@@ -65,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v36</title>
+<title>PwnDongle v37</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -115,6 +115,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <script>
 function log(m){let d=document.getElementById('dbg');d.innerText+="\n"+m;d.scrollTop=d.scrollHeight;}
+window.onerror=(m,s,l,c,e)=>log("ERR: "+m+" L"+l);
 let ws=new WebSocket('ws://'+location.host+'/ws');
 let os='win', history=[], isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
@@ -145,17 +146,17 @@ document.getElementById('img-f').onchange=e=>{
         gifBytes=new Uint8Array(ev.target.result);
         curImg.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw(true);
+            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw();
         }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
     }; r.readAsArrayBuffer(f);
 };
-function drw(clr){
-    if(clr){ ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); }
+function drw(){
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
     ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
     ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
     ctx.restore();
 }
-function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
+function z(v){scale+=v;drw();} function rot(){rotation=(rotation+90)%360;drw();}
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -169,32 +170,56 @@ async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
     try{
         if(isGif){
-            log("Slicing binary GIF...");
+            log("Slicing GIF blocks...");
             wsS('I:gif');
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
             let frames=[], pos=13+gctSize;
-            while(pos<gifBytes.length-1 && frames.length<3){
-                if(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9){
+            let curFrame = [];
+            while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<3){
+                let b = gifBytes[pos];
+                if(b===0x21){ // Extension
+                    let extType=gifBytes[pos+1];
                     let start=pos; pos+=2;
-                    while(pos<gifBytes.length-1 && !(gifBytes[pos]===0x21 && gifBytes[pos+1]===0xF9)) pos++;
-                    let f=new Uint8Array(header.length + (pos-start) + 1);
-                    f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
+                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1;
+                    pos++; 
+                    if(extType===0xF9) curFrame.push(gifBytes.slice(start,pos));
+                } else if(b===0x2C){ // Image Descriptor
+                    let start=pos; pos+=10;
+                    if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1);
+                    pos++;
+                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1;
+                    pos++;
+                    curFrame.push(gifBytes.slice(start,pos));
+                    
+                    let len=header.length+1;
+                    for(let c of curFrame) len+=c.length;
+                    let f=new Uint8Array(len); f.set(header,0);
+                    let off=header.length;
+                    for(let c of curFrame){ f.set(c,off); off+=c.length; }
+                    f[off]=0x3B;
                     frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
-                } else pos++;
+                    curFrame=[];
+                } else { pos++; }
             }
-            log("Slicer found: "+frames.length+" frames");
-            ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); // Clear once for base
+            log("Parser found "+frames.length+" frames");
+            ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); // Clear canvas once for background
             for(let i=0; i<frames.length; i++){
                 await new Promise((res)=>{
                     curImg.onload=()=>{
-                        drw(false); // Composite frame on top of base
-                        ws.send(getB()); log("Frame "+(i+1)+" Beam OK"); res();
-                    }; curImg.src=frames[i];
+                        // Draw cumulatively without clearing to preserve transparent pixels
+                        ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
+                        ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
+                        ctx.restore();
+                        ws.send(getB()); log("Frame "+(i+1)+" sent to dongle"); res();
+                    }; 
+                    curImg.onerror=()=>{ log("Frame "+(i+1)+" error"); res(); };
+                    curImg.src=frames[i];
                 });
-                await new Promise(r=>setTimeout(r,600));
+                await new Promise(r=>setTimeout(r,400));
             }
             document.getElementById('status').innerText='Loop Active!';
+            curImg.src=URL.createObjectURL(new Blob([gifBytes])); // Restore preview
         }else{
             wsS('I:img'); ws.send(getB());
             document.getElementById('status').innerText='Success!';
@@ -312,7 +337,7 @@ void updateDisplay() {
                 }
             }
         } else {
-            if (clients == 0) { user_on_site = false; }
+            if (ws.count() > 0) user_on_site = true; else user_on_site = false;
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
