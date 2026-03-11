@@ -24,11 +24,11 @@
 #define PIN_NUM_RST    1
 #define PIN_NUM_BCKL   38
 
-// Swapped colors for ST7735 (Little Endian ESP32 <-> Big Endian SPI)
-#define C_GREEN      0xE007  // 0x07E0
-#define C_DARKGREEN  0x4002  // 0x0240
-#define C_DIM        0x2001  // 0x0120
-#define C_RED        0x00F8  // 0xF800
+// Swapped colors for ST7735
+#define C_GREEN      0xE007
+#define C_DARKGREEN  0x4002
+#define C_DIM        0x2001
+#define C_RED        0x00F8
 #define C_WHITE      0xFFFF
 #define C_BLACK      0x0000
 
@@ -57,6 +57,7 @@ int showCursorFrames = 0;
 // QR Code
 unsigned long qrStartTime = 0;
 bool qrActive = false;
+bool qrWasActive = false;
 int lastClientCount = 0;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
@@ -65,7 +66,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v13</title>
+<title>PwnDongle v14</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
 <style>
@@ -81,10 +82,10 @@ button.toggled { background:#0f0; color:#000; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; margin-top:5px; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; touch-action:none; min-height:30vh; border-radius:8px; font-weight:bold; }
-#crop-container { width:100%; height:250px; background:#111; margin-top:10px; overflow:hidden; display:none; border:1px solid #333; }
+#crop-container { width:100%; height:250px; background:#111; margin-top:10px; border:1px solid #333; position:relative; overflow:hidden; display:none; }
 #crop-img { max-width:100%; display:block; }
-.file-btn { position:relative; overflow:hidden; display:inline-block; }
-.file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; }
+.file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
+.file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
@@ -102,9 +103,9 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
         <button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button>
     </div>
     <div class="row" style="margin-top:10px">
-        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');e.p()">WIN</button>
-        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');e.p()">CTRL</button>
-        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');e.p()">ALT</button>
+        <button id="m-win" onmousedown="mD('win')" onmouseup="mU('win')" ontouchstart="mD('win');event.preventDefault()">WIN</button>
+        <button id="m-ctrl" onmousedown="mD('ctrl')" onmouseup="mU('ctrl')" ontouchstart="mD('ctrl');event.preventDefault()">CTRL</button>
+        <button id="m-alt" onmousedown="mD('alt')" onmouseup="mU('alt')" ontouchstart="mD('alt');event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type messages..."></textarea>
     <div class="row" style="margin-top:10px">
@@ -126,16 +127,16 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
     <button id="b-air" onclick="tAir()">GYRO MOUSE: OFF</button>
     <div id="pad">TRACKPAD</div>
     <div class="row" style="margin-top:10px;">
-        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');e.p()">LEFT</button>
-        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');e.p()">MID</button>
-        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');e.p()">RIGHT</button>
+        <button onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l');event.preventDefault()">LEFT</button>
+        <button onmousedown="wsS('D:m')" onmouseup="wsS('U:m')" ontouchstart="wsS('D:m');event.preventDefault()">MID</button>
+        <button onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r');event.preventDefault()">RIGHT</button>
     </div>
 </div>
 
 <div id="c-ig" class="content">
     <div class="file-btn">
         <button>SELECT IMAGE</button>
-        <input type="file" id="img-f" accept="image/*" onchange="loadImg(event)">
+        <input type="file" id="img-f" accept="image/*">
     </div>
     <div id="status" class="status"></div>
     <div id="crop-container"><img id="crop-img"></div>
@@ -144,7 +145,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
             <button onclick="cropper.rotate(-90)">ROT L</button>
             <button onclick="cropper.rotate(90)">ROT R</button>
         </div>
-        <button onclick="uploadImg()">SEND TO DONGLE</button>
+        <button onclick="uploadImg()">UPLOAD TO DONGLE</button>
     </div>
     <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR SCREEN</button>
 </div>
@@ -189,7 +190,7 @@ if(e.key==='Backspace'){e.preventDefault();wsS('B:1');}
 if(e.key==='Tab'){e.preventDefault();wsS('T:1');}
 });
 
-// Trackpad logic
+// Trackpad
 let p=document.getElementById('pad'), lX=0, lY=0, isD=false, moved=false, tapT=0, fingers=0;
 p.addEventListener('mousedown',e=>{isD=true;moved=false;lX=e.clientX;lY=e.clientY;tapT=Date.now();fingers=1;});
 document.addEventListener('mouseup',()=>{if(isD&&!moved&&Date.now()-tapT<300)wsS('C:l');isD=false;});
@@ -211,23 +212,24 @@ window.addEventListener('deviceorientation',e=>{
 if(air){ let x=Math.round((e.gamma||0)/2), y=Math.round(((e.beta||0)-45)/2); if(x||y)wsS('M:'+x+','+y); }
 });
 
-function loadImg(e){
-let f=e.target.files[0]; if(!f)return;
-document.getElementById('status').innerText='Loading...';
-let r=new FileReader();
-r.onload=ev=>{
-let i=document.getElementById('crop-img'); i.src=ev.target.result;
-document.getElementById('crop-container').style.display='block';
-document.getElementById('ig-controls').style.display='block';
-if(cropper)cropper.destroy();
-cropper=new Cropper(i,{aspectRatio:2,viewMode:1,guides:false,background:false});
-document.getElementById('status').innerText='Image Ready';
-};
-r.readAsDataURL(f);
-}
+document.getElementById('img-f').addEventListener('change', function(e) {
+    let f=e.target.files[0]; if(!f)return;
+    document.getElementById('status').innerText='Loading...';
+    let r=new FileReader();
+    r.onload=ev=>{
+        let i=document.getElementById('crop-img'); i.src=ev.target.result;
+        document.getElementById('crop-container').style.display='block';
+        document.getElementById('ig-controls').style.display='block';
+        if(cropper)cropper.destroy();
+        cropper=new Cropper(i,{aspectRatio:2,viewMode:1,guides:false,background:false});
+        document.getElementById('status').innerText='Image Ready';
+    };
+    r.readAsDataURL(f);
+});
+
 function uploadImg(){
 if(!cropper)return;
-document.getElementById('status').innerText='Sending to Dongle...';
+document.getElementById('status').innerText='Sending...';
 let canvas=cropper.getCroppedCanvas({width:160,height:80});
 let d=canvas.getContext('2d').getImageData(0,0,160,80).data;
 let b=new Uint8Array(25600);
@@ -237,7 +239,7 @@ let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
 b[j*2]=rgb>>8; b[j*2+1]=rgb&0xFF;
 }
 ws.send(b);
-setTimeout(()=>document.getElementById('status').innerText='Upload Done!',1000);
+setTimeout(()=>document.getElementById('status').innerText='Uploaded!',1000);
 }
 </script>
 </body>
@@ -294,7 +296,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             } else if (msg.startsWith("H:")) {
                 int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
                 uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-                if(st) Keyboard.press(k); else Keyboard.release(k);
+                if(st) Keyboard.press(k); else { Keyboard.release(k); delay(50); Keyboard.write(0); } // WIN key fix
             } else if (msg.startsWith("P:")) {
                 String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
                 Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
@@ -338,7 +340,7 @@ void updateDisplay() {
         lastClientCount = clients;
 
         if (qrActive) {
-            if (millis() - qrStartTime > 10000) qrActive = false;
+            if (millis() - qrStartTime > 10000) { qrActive = false; qrWasActive = true; }
             for(int i=0; i<160*80; i++) screen_buf[i] = C_BLACK;
             int sc = 3; int ox = (160 - qr_size * sc) / 2; int oy = (80 - qr_size * sc) / 2;
             for(int y=0; y<qr_size; y++) {
@@ -348,15 +350,20 @@ void updateDisplay() {
                 }
             }
         } else {
+            if (qrWasActive) { for(int i=0; i<160*80; i++) screen_buf[i] = C_BLACK; qrWasActive = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-40, 0); init = true; }
             
-            // Fading Trail Logic
+            // Fast trail fading
             for(int i=0; i<160*80; i++) {
                 uint16_t c = screen_buf[i];
-                if (c == C_GREEN) screen_buf[i] = C_DARKGREEN;
-                else if (c == C_DARKGREEN) screen_buf[i] = C_DIM;
-                else if (c == C_DIM) screen_buf[i] = C_BLACK;
+                if (c == C_RED) screen_buf[i] = C_BLACK; // No trail for mouse
+                else if (c != C_BLACK) {
+                    // Manual shift-down fading
+                    uint16_t r = (c >> 11) & 0x1F; uint16_t g = (c >> 5) & 0x3F; uint16_t b = c & 0x1F;
+                    if(r > 4) r -= 4; else r = 0; if(g > 4) g -= 4; else g = 0; if(b > 4) b -= 4; else b = 0;
+                    screen_buf[i] = (r << 11) | (g << 5) | b;
+                }
             }
             
             for(int x=0; x<160; x+=6) {
