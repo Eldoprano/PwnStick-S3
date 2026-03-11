@@ -42,8 +42,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (5 frames max for RAM stability)
-static uint16_t gif_storage[5][160 * 80];
+// Dynamic GIF Storage
+static uint16_t* gif_storage[15]; // Support up to 15 frames if RAM allows
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -65,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v39</title>
+<title>PwnDongle v40</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -74,31 +74,30 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; transition:0.2s; }
 button:active { background:#0f0; color:#000; }
-button:disabled { border-color:#333; color:#333; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 15px #0f0; }
 .row { display:flex; gap:10px; }
 textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; font-weight:bold; }
 #crop-wrap { width:100%; border:1px solid #333; margin-top:10px; background:#050505; position:relative; overflow:hidden; touch-action:none; }
 #crop-canvas { display:block; margin:0 auto; max-width:100%; background:#111; }
 .file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
-.opt-box { background:#111; border:1px solid #333; padding:10px; margin-top:10px; display:none; flex-direction:column; gap:5px; text-align:left; }
+.opt-box { background:#111; border:1px solid #333; padding:10px; margin-top:10px; display:none; flex-direction:column; gap:5px; text-align:left; font-size:12px; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
-input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:50px; padding:5px; }
+input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:50px; padding:5px; font-family:monospace; }
 </style>
 </head>
 <body>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
-    <div class="row"><button id="b-win" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
+    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row" style="margin-top:10px">
-        <button onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()">WIN</button>
-        <button onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()">CTRL</button>
-        <button onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()">ALT</button>
+        <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button>
+        <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button>
+        <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button>
     </div>
     <textarea id="ta" placeholder="Type or Paste..."></textarea>
     <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
@@ -110,8 +109,8 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:5
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="gif-opts" class="opt-box">
-        <div class="opt-row"><span>Frames (1-5):</span><input type="number" id="g-cnt" value="5" min="1" max="5"></div>
-        <div class="opt-row"><span>Skip Every:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
+        <div class="opt-row"><span>Capture Frames:</span><input type="number" id="g-cnt" value="5" min="1" max="15"></div>
+        <div class="opt-row"><span>Skip Steps:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
     </div>
     <div id="ig-controls" style="display:none;margin-top:10px">
         <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
@@ -121,7 +120,7 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:5
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', isGif=false, gifBytes=null;
+let os='win', history=[], isGif=false, gifBytes=null;
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -129,11 +128,22 @@ document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
 el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
 }
 function uOS(){
-document.getElementById('b-win').className=(os=='win'?'toggled':'');
-document.getElementById('b-lin').className=(os=='lin'?'toggled':'');
+document.getElementById('b-win-os').className=(os=='win'?'toggled':'');
+document.getElementById('b-lin-os').className=(os=='lin'?'toggled':'');
 }
-function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },400); }
-function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
+function mD(m,el){
+    el.dataset.t=Date.now();
+    el.dataset.h=setTimeout(()=>{
+        el.dataset.h=0; el.classList.toggle('toggled');
+        wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0'));
+    },500);
+}
+function mU(m,el){
+    if(el.dataset.h){
+        clearTimeout(el.dataset.h); el.dataset.h=0;
+        wsS('P:'+m); // Just a quick tap
+    }
+}
 let ta=document.getElementById('ta');
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
@@ -211,8 +221,10 @@ async function upl(){
                     curImg.src=filtered[i];
                 });
                 await new Promise(r=>setTimeout(r,400));
+                document.getElementById('status').innerText='Uploading: '+(i+1)+'/'+filtered.length;
             }
             document.getElementById('status').innerText='Animated!';
+            curImg.src=URL.createObjectURL(new Blob([gifBytes]));
         }else{
             wsS('I:img'); ws.send(getB()); document.getElementById('status').innerText='Success!';
         }
@@ -278,10 +290,11 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             if(st) Keyboard.press(k); else { Keyboard.release(k); delay(10); Keyboard.write(0); }
         } else if (msg.startsWith("P:")) {
             String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
-            Keyboard.press(k); delay(200); Keyboard.release(k); setLastKey(mod);
+            Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { 
             String act = msg.substring(2); Keyboard.releaseAll();
             if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
+            else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
             setLastKey(act); 
         }
@@ -295,8 +308,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 5) {
-                    memcpy(gif_storage[gif_count], custom_img_buf, 25600);
+                if(gif_mode && gif_count < 15) {
+                    if(gif_storage[gif_count]) free(gif_storage[gif_count]);
+                    gif_storage[gif_count] = (uint16_t*)malloc(25600);
+                    if(gif_storage[gif_count]) memcpy(gif_storage[gif_count], custom_img_buf, 25600);
                     gif_count++;
                 }
                 if (!gif_mode) show_img = true;
@@ -329,7 +344,7 @@ void updateDisplay() {
                 }
             }
         } else {
-            if (clients == 0) { user_on_site = false; }
+            if (ws.count() > 0) user_on_site = true; else user_on_site = false;
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
@@ -384,6 +399,7 @@ void setup() {
     WiFi.mode(WIFI_AP); WiFi.softAP(ssid);
     dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
     Keyboard.begin(); Mouse.begin(); USB.begin(); setup_lcd();
+    for(int i=0; i<15; i++) gif_storage[i] = NULL;
     ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
         if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
         else if(type == WS_EVT_DISCONNECT) { user_on_site = false; }
