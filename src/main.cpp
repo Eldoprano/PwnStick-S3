@@ -44,8 +44,8 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// GIF Engine (8 frames max)
-static uint16_t* gif_frames[8] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+// GIF Engine (4 frames max to stay safe in RAM)
+static uint16_t* gif_frames[4] = {NULL, NULL, NULL, NULL};
 static int gif_count = 0;
 static int gif_idx = 0;
 static unsigned long last_gif_ms = 0;
@@ -69,7 +69,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v21</title>
+<title>PwnDongle v22</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -190,14 +190,14 @@ function getB(){
 }
 function upl(){
     if(isGif){
-        document.getElementById('status').innerText='GIF Capture...';
+        document.getElementById('status').innerText='Capturing 4 Frames...';
         wsS('I:gif');
         let f=0;
         let iv=setInterval(()=>{
             drw(); ws.send(getB()); f++;
-            document.getElementById('status').innerText='GIF: '+(f*12.5)+'%';
-            if(f>=8){ clearInterval(iv); document.getElementById('status').innerText='GIF Ready!'; }
-        },200);
+            document.getElementById('status').innerText='Capturing: '+(f*25)+'%';
+            if(f>=4){ clearInterval(iv); document.getElementById('status').innerText='GIF Looping!'; }
+        },250);
     }else{
         document.getElementById('status').innerText='Sending...';
         let b=getB(); ws.send(b);
@@ -289,7 +289,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
             if (binaryOffset == 25600) {
-                if(gif_mode && gif_count < 8) {
+                if(gif_mode && gif_count < 4) {
                     if(!gif_frames[gif_count]) gif_frames[gif_count] = (uint16_t*)malloc(25600);
                     if(gif_frames[gif_count]) memcpy(gif_frames[gif_count], custom_img_buf, 25600);
                     gif_count++;
@@ -325,7 +325,7 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
 void updateDisplay() {
     if (show_img) {
         if(gif_mode && gif_count > 0) {
-            if(millis() - last_gif_ms > 150) {
+            if(millis() - last_gif_ms > 200) {
                 last_gif_ms = millis();
                 memcpy(screen_buf, gif_frames[gif_idx], 25600);
                 gif_idx = (gif_idx + 1) % gif_count;
