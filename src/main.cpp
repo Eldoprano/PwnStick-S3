@@ -42,7 +42,7 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (3 frames is the safety limit for stability)
+// Static GIF Storage (3 frames max for RAM stability)
 static uint16_t gif_storage[3][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
@@ -65,7 +65,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v28</title>
+<title>PwnDongle v29</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -74,7 +74,7 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .tab.active { background:#0f0; color:#000; }
 .content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
 .content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; touch-action:manipulation; border-radius:4px; }
 button:active { background:#0f0; color:#000; }
 button:disabled { border-color:#333; color:#333; }
 .row { display:flex; gap:10px; }
@@ -87,11 +87,10 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
 .history { display:flex; gap:10px; overflow-x:auto; padding:10px 0; border-top:1px solid #222; margin-top:10px; }
 .hist-item { width:60px; height:30px; border:1px solid #0f0; flex-shrink:0; cursor:pointer; background-size:cover; }
-#gif-src { position:fixed; top:-1000px; left:-1000px; width:160px; height:80px; opacity:0.01; }
+#gif-src { width:40px; height:20px; border:1px solid #333; margin:5px auto; display:none; }
 </style>
 </head>
 <body>
-<img id="gif-src">
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
     <div class="row"><button onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
@@ -106,6 +105,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 </div>
 <div id="c-ms" class="content"><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
+    <img id="gif-src">
     <div class="file-btn"><button>SELECT IMG / GIF</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
@@ -146,6 +146,7 @@ document.getElementById('img-f').onchange=e=>{
     let r=new FileReader(); r.onload=ev=>{
         gEl.onload=()=>{
             document.getElementById('ig-controls').style.display='block';
+            gEl.style.display=isGif?'block':'none';
             scale=Math.max(160/gEl.width,80/gEl.height);oX=0;oY=0;rotation=0;
             if(!window.animating){ window.animating=true; play(); }
         }; gEl.src=ev.target.result;
@@ -153,7 +154,7 @@ document.getElementById('img-f').onchange=e=>{
 };
 function play(){
     ctx.fillStyle='#000';ctx.fillRect(0,0,160,80);
-    ctx.save();ctx.translate(80+oX,40+oY);ctx.rotate(rotation*Math.PI/180);
+    ctx.save();ctx.translate(160/2+oX,80/2+oY);ctx.rotate(rotation*Math.PI/180);
     ctx.drawImage(gEl,-gEl.width*scale/2,-gEl.height*scale/2,gEl.width*scale,gEl.height*scale);ctx.restore();
     requestAnimationFrame(play);
 }
@@ -188,8 +189,8 @@ function upl(){
         let iv=setInterval(()=>{
             ws.send(getB()); f++;
             document.getElementById('status').innerText='Recording: '+f+'/3';
-            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='Animated!'; btn.disabled=false; }
-        },1200);
+            if(f>=3){ clearInterval(iv); document.getElementById('status').innerText='GIF Animated!'; btn.disabled=false; }
+        },1000);
     }else{
         wsS('I:img');
         let b=getB(); ws.send(b);
@@ -304,6 +305,10 @@ void updateDisplay() {
         } else {
             memcpy(screen_buf, custom_img_buf, 25600);
         }
+        if(gif_mode) {
+            char gdbg[8]; sprintf(gdbg, "G:%d", gif_count);
+            drawString(140, 70, gdbg, C_GREEN, 1);
+        }
     } else {
         int clients = WiFi.softAPgetStationNum();
         if (clients > 0 && !user_on_site) {
@@ -316,6 +321,7 @@ void updateDisplay() {
                 }
             }
         } else {
+            if (clients == 0) { user_on_site = false; }
             static int drops[160]; static bool init = false;
             if (!init) { for(int i=0; i<160; i++) drops[i] = random(-100, 0); init = true; }
             for(int i=0; i<160*80; i++) {
