@@ -42,7 +42,6 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
 static uint16_t custom_img_buf[160 * 80];
 
-// Static GIF Storage (4 frames is the absolute stable limit)
 static uint16_t gif_storage[4][160 * 80];
 static int gif_count = 0;
 static int gif_idx = 0;
@@ -65,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v34</title>
+<title>PwnDongle v35</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
@@ -86,9 +85,11 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 .file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
 .status { color:#888; font-size:12px; margin:5px; height:15px; }
 #dbg { position:fixed; bottom:0; left:0; right:0; height:60px; background:#111; color:#0a0; font-size:10px; overflow-y:auto; text-align:left; padding:5px; border-top:1px solid #222; user-select:text; -webkit-user-select:text; }
+#gif-hidden { position:fixed; top:-1000px; }
 </style>
 </head>
 <body>
+<img id="gif-hidden">
 <div id="dbg">System Ready...</div>
 <div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
 <div id="c-kb" class="content active">
@@ -116,7 +117,7 @@ textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dash
 <script>
 function log(m){let d=document.getElementById('dbg');d.innerText+="\n"+m;d.scrollTop=d.scrollHeight;}
 let ws=new WebSocket('ws://'+location.host+'/ws');
-let os='win', history=[], isGif=false, gifBytes=null;
+let os='win', history=[], isGif=false, gEl=document.getElementById('gif-hidden');
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -137,25 +138,24 @@ p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT
 p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;e.preventDefault();};
 p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}e.preventDefault();};
 // Image logic
-let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image();
+let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
-    let r=new FileReader(); r.onload=ev=>{
-        gifBytes=new Uint8Array(ev.target.result);
-        curImg.onload=()=>{
-            document.getElementById('ig-controls').style.display='block';
-            scale=Math.max(160/curImg.width,80/curImg.height);oX=0;oY=0;rotation=0;drw(true);
-        }; curImg.src=URL.createObjectURL(new Blob([gifBytes]));
-    }; r.readAsArrayBuffer(f);
+    gEl.onload=()=>{
+        document.getElementById('ig-controls').style.display='block';
+        scale=Math.max(160/gEl.width,80/gEl.height);oX=0;oY=0;rotation=0;
+        if(!window.anim) { window.anim=true; loop(); }
+    }; gEl.src=URL.createObjectURL(f);
 };
-function drw(clr){
-    if(clr){ ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80); }
+function loop(){
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,160,80);
     ctx.save(); ctx.translate(160/2+oX,80/2+oY); ctx.rotate(rotation*Math.PI/180);
-    ctx.drawImage(curImg,-curImg.width*scale/2,-curImg.height*scale/2,curImg.width*scale,curImg.height*scale);
+    ctx.drawImage(gEl,-gEl.width*scale/2,-gEl.height*scale/2,gEl.width*scale,gEl.height*scale);
     ctx.restore();
+    requestAnimationFrame(loop);
 }
-function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
+function z(v){scale+=v;} function rot(){rotation=(rotation+90)%360;}
 function getB(){
     let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
     for(let j=0;j<12800;j++){
@@ -167,40 +167,20 @@ function getB(){
 }
 async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
-    try{
-        if(isGif){
-            log("Parsing GIF layers...");
-            wsS('I:gif');
-            let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
-            let header=gifBytes.slice(0,13+gctSize);
-            let frames=[], pos=13+gctSize;
-            while(pos<gifBytes.length-1 && frames.length<4){
-                let start=pos;
-                if(gifBytes[pos]===0x21){ pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; }
-                if(gifBytes[pos]===0x2C){
-                    pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
-                    while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++;
-                    let f=new Uint8Array(header.length + (pos-start) + 1);
-                    f.set(header); f.set(gifBytes.slice(start,pos),header.length); f[f.length-1]=0x3B;
-                    frames.push(URL.createObjectURL(new Blob([f],{type:'image/gif'})));
-                } else pos++;
-            }
-            log("Found "+frames.length+" unique layers");
-            for(let i=0; i<frames.length; i++){
-                await new Promise(res=>{
-                    curImg.onload=()=>{
-                        drw(i===0); // Only clear on frame 1, then draw cumulatively
-                        ws.send(getB()); log("Uploaded Frame "+(i+1)); res();
-                    }; curImg.src=frames[i];
-                });
-                await new Promise(r=>setTimeout(r,400));
-            }
-            document.getElementById('status').innerText='Loop Active!';
-        }else{
-            wsS('I:img'); ws.send(getB());
-            document.getElementById('status').innerText='Success!';
+    if(isGif){
+        log("Capturing GIF stream...");
+        wsS('I:gif');
+        for(let i=0; i<4; i++){
+            log("Capturing Frame "+(i+1));
+            ws.send(getB());
+            document.getElementById('status').innerText='Frame '+(i+1)+'/4';
+            await new Promise(r=>setTimeout(r,800)); // Wait for GIF to move
         }
-    }catch(e){log("FAIL: "+e);}
+        document.getElementById('status').innerText='GIF Done!';
+    }else{
+        wsS('I:img'); ws.send(getB());
+        document.getElementById('status').innerText='Success!';
+    }
     btn.disabled=false;
 }
 ws.onopen=()=>wsS('U:1');
