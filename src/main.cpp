@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v44</title>
+<title>PwnStick v45</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 * { user-select:none; -webkit-user-select:none; }
@@ -76,18 +76,16 @@ body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:
 .content.active { display:flex; }
 button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; font-weight:bold; font-size:13px; border-radius:4px; transition:0.1s; flex:1; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; animation:pulse 2s infinite; }
-@keyframes pulse { 0% { opacity:1; } 50% { opacity:0.7; } 100% { opacity:1; } }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:5px; width:100%; flex-shrink:0; }
 textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; box-sizing:border-box; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
 #pad-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; transition:border-color 0.2s; }
-#pad:hover { border-color:#0f0; color:#0f0; }
-.click-row { display:flex; height:40px; gap:2px; flex-shrink:0; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; touch-action:none; }
+.click-row { display:flex; height:45px; gap:2px; flex-shrink:0; }
 .click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
 .click-btn:active { background:#111; border-color:#0f0; }
 #crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; }
-#crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; }
+#crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; cursor:move; }
 .file-btn { position:relative; overflow:hidden; width:100%; flex-shrink:0; }
 #img-f { position:absolute; left:0; top:0; opacity:0; width:100%; height:100%; cursor:pointer; }
 .status { color:#888; font-size:11px; height:14px; }
@@ -101,23 +99,26 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
 <div id="c-ctl" class="content active">
     <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
     <div class="row"><button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button><button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button><button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button><button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button></div>
-    <textarea id="ta" placeholder="Type payloads..."></textarea>
+    <textarea id="ta" placeholder="Type here..."></textarea>
     <div id="pad-wrap">
         <div id="pad">TRACKPAD</div>
         <div class="click-row"><div class="click-btn" onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l')" ontouchend="wsS('U:l')"></div><div class="click-btn" onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r')" ontouchend="wsS('U:r')"></div></div>
     </div>
-    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button><button onclick="wsS('A:rick')">RICKROLL</button></div>
+    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button><button onclick="wsS('A:rick')">RICK</button><button onclick="wsS('A:snake')">SNAKE</button></div>
 </div>
 <div id="c-ig" class="content">
     <div class="file-btn"><button style="width:100%">SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
-    <div id="status" class="status"></div>
-    <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="gif-opts" class="opt-box">
         <div class="opt-row"><span>Frames:</span><input type="number" id="g-cnt" value="5" min="1" max="15"></div>
         <div class="opt-row"><span>Skip:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
     </div>
-    <div id="ig-controls" style="display:none;margin-top:5px;flex-shrink:0"><div class="row"><button onclick="z(-0.02)">-</button><button onclick="z(0.02)">+</button><button onclick="rot()">ROT</button><button id="b-up" onclick="upl()" style="flex:2">UPLOAD</button></div></div>
-    <button onclick="wsS('I:clear')" style="margin-top:5px;border-color:#444;color:#666;flex-shrink:0">CLEAR SCREEN</button>
+    <div id="status" class="status"></div>
+    <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
+    <div id="ig-controls" style="display:none;margin-top:5px;flex-shrink:0">
+        <div class="row"><button onclick="z(-0.02)">ZOOM -</button><button onclick="z(0.02)">ZOOM +</button><button onclick="rot()">ROT</button></div>
+        <button id="b-up" onclick="upl()" style="width:100%;margin-top:5px;height:45px;font-size:16px">UPLOAD TO DONGLE</button>
+    </div>
+    <button onclick="wsS('I:clear')" style="margin-top:auto;border-color:#444;color:#666;flex-shrink:0">CLEAR SCREEN</button>
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
@@ -139,14 +140,14 @@ ta.onkeydown=e=>{
     if(e.key==='Backspace'){ e.preventDefault(); wsS('B:1'); return; }
 };
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
-// Trackpad
+// Trackpad - Fixed Relative Drag with Sensitivity
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
-function gR(){ return 160 / p.offsetWidth; }
-p.onmousemove=e=>{ let r=gR(); if(e.buttons===0){ wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); } else if(isD){ wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); } lX=e.clientX; lY=e.clientY; };
-p.onmouseenter=e=>{ lX=e.clientX; lY=e.clientY; };
+p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); };
+window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
+p.onmousemove=e=>{ if(isD){ let dx=e.clientX-lX, dy=e.clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.clientX; lY=e.clientY; } };
 p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); };
 p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
-p.ontouchmove=e=>{ if(isD){ let r=gR(); wsS('M:'+Math.round((e.touches[0].clientX-lX)*r)+','+Math.round((e.touches[0].clientY-lY)*r)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
+p.ontouchmove=e=>{ if(isD){ let dx=e.touches[0].clientX-lX, dy=e.touches[0].clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
 // Image Editor
 let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0,cCvs=document.createElement('canvas'),cCtx=cCvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
@@ -200,7 +201,7 @@ async function upl(){
             let maxF=parseInt(document.getElementById('g-cnt').value)||5, skip=parseInt(document.getElementById('g-skp').value)||0, sI=0;
             for(let i=0; i<frames.length && sI<maxF; i++){
                 let f=frames[i];
-                await new Promise(res=>{ let tmp=new Image(); tmp.onload=()=>{ cCtx.drawImage(tmp,f.x,f.y,f.w,f.h); if(i%(skip+1)===0){ drw(true,cCvs); let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600); for(let j=0;j<12800;j++){ let r=d[j*4],g=d[j*4+1],bl=d[j*4+2]; let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3); b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF; } ws.send(b); sI++; document.getElementById('status').innerText='Beam '+sI+'/'+maxF; } res(); }; tmp.src=f.blob; });
+                await new Promise(res=>{ let tmp=new Image(); tmp.onload=()=>{ cCtx.drawImage(tmp,f.x,f.y,f.w,f.h); if(i%(skip+1)===0){ drw(true,cCvs); let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600); for(let j=0;j<12800;j++){ let r=d[j*4],g=d[j*4+1],bl=d[j*4+2]; let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3); b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF; } ws.send(b); sI++; document.getElementById('status').innerText='Sending '+sI+'/'+maxF; } res(); }; tmp.src=f.blob; });
                 if(i%(skip+1)===0) await new Promise(r=>setTimeout(r,400));
             }
             document.getElementById('status').innerText='Animated!'; drw(true);
@@ -280,6 +281,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
+            else if(act=="snake") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd /c \"ssh snakes.run\""); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.println("ssh snakes.run"); } }
             setLastKey(act); 
         }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
