@@ -64,30 +64,34 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v43</title>
+<title>PwnStick v44</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-* { user-select:none; -webkit-user-select:none; touch-action:none; }
+* { user-select:none; -webkit-user-select:none; }
 body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; flex-shrink:0; }
 .tab { flex:1; padding:12px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
-.content { padding:10px; display:none; flex:1; overflow:hidden; box-sizing:border-box; flex-direction:column; }
+.content { padding:8px; display:none; flex:1; overflow:hidden; box-sizing:border-box; flex-direction:column; gap:5px; }
 .content.active { display:flex; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; margin:2px; font-weight:bold; font-size:14px; border-radius:4px; transition:0.1s; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; font-weight:bold; font-size:13px; border-radius:4px; transition:0.1s; flex:1; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
-.row { display:flex; gap:5px; width:100%; }
-textarea { width:100%; height:50px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; box-sizing:border-box; font-size:1.1em; outline:none; flex-shrink:0; margin-bottom:5px; user-select:auto; -webkit-user-select:auto; touch-action:auto; }
-#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:0; margin-bottom:5px; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; }
-.click-row { display:flex; height:45px; gap:2px; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; animation:pulse 2s infinite; }
+@keyframes pulse { 0% { opacity:1; } 50% { opacity:0.7; } 100% { opacity:1; } }
+.row { display:flex; gap:5px; width:100%; flex-shrink:0; }
+textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; box-sizing:border-box; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
+#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; transition:border-color 0.2s; }
+#pad:hover { border-color:#0f0; color:#0f0; }
+.click-row { display:flex; height:40px; gap:2px; flex-shrink:0; }
 .click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
 .click-btn:active { background:#111; border-color:#0f0; }
 #crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; }
 #crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; }
-.status { color:#888; font-size:11px; height:14px; margin-bottom:2px; }
-.opt-box { background:#111; border:1px solid #333; padding:8px; margin-top:5px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; }
+.file-btn { position:relative; overflow:hidden; width:100%; flex-shrink:0; }
+#img-f { position:absolute; left:0; top:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+.status { color:#888; font-size:11px; height:14px; }
+.opt-box { background:#111; border:1px solid #333; padding:8px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; flex-shrink:0; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
 input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:45px; padding:3px; }
 </style>
@@ -95,27 +99,25 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
 <body>
 <div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL</div><div class="tab" onclick="sT('ig',this)">IMAGE</div></div>
 <div id="c-ctl" class="content active">
-    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX</button>
-    <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button><button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button><button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button></div>
-    <textarea id="ta" placeholder="Type here..."></textarea>
+    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
+    <div class="row"><button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button><button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button><button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button><button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button></div>
+    <textarea id="ta" placeholder="Type payloads..."></textarea>
     <div id="pad-wrap">
         <div id="pad">TRACKPAD</div>
         <div class="click-row"><div class="click-btn" onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l')" ontouchend="wsS('U:l')"></div><div class="click-btn" onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r')" ontouchend="wsS('U:r')"></div></div>
     </div>
-    <div class="row"><button onclick="wsS('A:term')" style="flex:1">TERM</button><button onclick="wsS('A:calc')" style="flex:1">CALC</button><button onclick="wsS('A:rick')" style="flex:1">RICK</button></div>
+    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button><button onclick="wsS('A:rick')">RICKROLL</button></div>
 </div>
 <div id="c-ig" class="content">
-    <div class="file-btn"><button id="b-sel" style="width:100%">SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button style="width:100%">SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="gif-opts" class="opt-box">
         <div class="opt-row"><span>Frames:</span><input type="number" id="g-cnt" value="5" min="1" max="15"></div>
         <div class="opt-row"><span>Skip:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
     </div>
-    <div id="ig-controls" style="display:none;margin-top:5px">
-        <div class="row"><button onclick="z(-0.02)" style="flex:1">-</button><button onclick="z(0.02)" style="flex:1">+</button><button onclick="rot()" style="flex:1">ROT</button><button id="b-up" onclick="upl()" style="flex:2">UPLOAD</button></div>
-    </div>
-    <button onclick="wsS('I:clear')" style="margin-top:10px;border-color:#444;color:#666">CLEAR SCREEN</button>
+    <div id="ig-controls" style="display:none;margin-top:5px;flex-shrink:0"><div class="row"><button onclick="z(-0.02)">-</button><button onclick="z(0.02)">+</button><button onclick="rot()">ROT</button><button id="b-up" onclick="upl()" style="flex:2">UPLOAD</button></div></div>
+    <button onclick="wsS('I:clear')" style="margin-top:5px;border-color:#444;color:#666;flex-shrink:0">CLEAR SCREEN</button>
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
@@ -140,7 +142,7 @@ ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+
 // Trackpad
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
 function gR(){ return 160 / p.offsetWidth; }
-p.onmousemove=e=>{ let r=gR(); wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); lX=e.clientX; lY=e.clientY; };
+p.onmousemove=e=>{ let r=gR(); if(e.buttons===0){ wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); } else if(isD){ wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); } lX=e.clientX; lY=e.clientY; };
 p.onmouseenter=e=>{ lX=e.clientX; lY=e.clientY; };
 p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); };
 p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
@@ -263,10 +265,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else { char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
         } else if (msg.startsWith("H:")) {
             int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
-            uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:(mod=="alt")?KEY_LEFT_ALT:KEY_LEFT_SHIFT;
             if(st) Keyboard.press(k); else { Keyboard.release(k); delay(10); Keyboard.write(0); }
         } else if (msg.startsWith("P:")) {
-            String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:KEY_LEFT_ALT;
+            String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:(mod=="alt")?KEY_LEFT_ALT:KEY_LEFT_SHIFT;
             Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { 
             String act = msg.substring(2); Keyboard.releaseAll();
