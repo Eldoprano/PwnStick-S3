@@ -64,58 +64,58 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnDongle v42</title>
+<title>PwnStick v43</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; overflow:hidden; overscroll-behavior:none; }
-.tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; }
-.tab { flex:1; padding:15px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
+* { user-select:none; -webkit-user-select:none; touch-action:none; }
+body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+.tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; flex-shrink:0; }
+.tab { flex:1; padding:12px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
-.content { padding:10px; display:none; height:calc(100vh - 50px); overflow-y:auto; box-sizing:border-box; }
-.content.active { display:block; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:15px; margin:5px; font-weight:bold; width:100%; font-size:16px; border-radius:4px; transition:0.2s; }
+.content { padding:10px; display:none; flex:1; overflow:hidden; box-sizing:border-box; flex-direction:column; }
+.content.active { display:flex; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; margin:2px; font-weight:bold; font-size:14px; border-radius:4px; transition:0.1s; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 15px #0f0; }
-.row { display:flex; gap:10px; }
-textarea { width:100%; height:80px; background:#111; color:#0f0; border:1px dashed #333; padding:10px; box-sizing:border-box; font-size:1.2em; outline:none; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; margin-top:10px; display:flex; align-items:center; justify-content:center; color:#444; height:35vh; border-radius:8px; font-weight:bold; }
-#crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:10px auto; background:#050505; position:relative; overflow:hidden; touch-action:none; aspect-ratio:160/80; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
+.row { display:flex; gap:5px; width:100%; }
+textarea { width:100%; height:50px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; box-sizing:border-box; font-size:1.1em; outline:none; flex-shrink:0; margin-bottom:5px; user-select:auto; -webkit-user-select:auto; touch-action:auto; }
+#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:0; margin-bottom:5px; }
+#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; }
+.click-row { display:flex; height:45px; gap:2px; }
+.click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
+.click-btn:active { background:#111; border-color:#0f0; }
+#crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; }
 #crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; }
-.file-btn { position:relative; overflow:hidden; display:inline-block; width:100%; }
-.file-btn input[type=file] { position:absolute; font-size:100px; right:0; top:0; opacity:0; cursor:pointer; }
-.status { color:#888; font-size:12px; margin:5px; height:15px; }
-.opt-box { background:#111; border:1px solid #333; padding:10px; margin-top:10px; display:none; flex-direction:column; gap:5px; text-align:left; font-size:12px; }
+.status { color:#888; font-size:11px; height:14px; margin-bottom:2px; }
+.opt-box { background:#111; border:1px solid #333; padding:8px; margin-top:5px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
-input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:50px; padding:5px; font-family:monospace; }
+input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:45px; padding:3px; }
 </style>
 </head>
 <body>
-<div class="tabs"><div class="tab active" onclick="sT('kb',this)">KB</div><div class="tab" onclick="sT('ms',this)">MS</div><div class="tab" onclick="sT('ig',this)">IMG</div></div>
-<div id="c-kb" class="content active">
-    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN OS</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX OS</button></div>
-    <div class="row" style="margin-top:10px">
-        <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)" ontouchstart="mD('win',this);event.preventDefault()" ontouchend="mU('win',this);event.preventDefault()">WIN</button>
-        <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)" ontouchstart="mD('ctrl',this);event.preventDefault()" ontouchend="mU('ctrl',this);event.preventDefault()">CTRL</button>
-        <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)" ontouchstart="mD('alt',this);event.preventDefault()" ontouchend="mU('alt',this);event.preventDefault()">ALT</button>
+<div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL</div><div class="tab" onclick="sT('ig',this)">IMAGE</div></div>
+<div id="c-ctl" class="content active">
+    <div class="row"><button id="b-win-os" class="toggled" onclick="os='win';wsS('O:win');uOS()">WIN</button><button id="b-lin-os" onclick="os='lin';wsS('O:lin');uOS()">LINUX</button>
+    <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button><button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button><button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button></div>
+    <textarea id="ta" placeholder="Type here..."></textarea>
+    <div id="pad-wrap">
+        <div id="pad">TRACKPAD</div>
+        <div class="click-row"><div class="click-btn" onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l')" ontouchend="wsS('U:l')"></div><div class="click-btn" onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r')" ontouchend="wsS('U:r')"></div></div>
     </div>
-    <textarea id="ta" placeholder="Type or Paste..."></textarea>
-    <div class="row"><button onclick="wsS('A:term')">TERM</button><button onclick="wsS('A:calc')">CALC</button></div>
-    <button onclick="wsS('A:rick')">RICKROLL</button>
+    <div class="row"><button onclick="wsS('A:term')" style="flex:1">TERM</button><button onclick="wsS('A:calc')" style="flex:1">CALC</button><button onclick="wsS('A:rick')" style="flex:1">RICK</button></div>
 </div>
-<div id="c-ms" class="content"><div id="pad">TRACKPAD</div></div>
 <div id="c-ig" class="content">
-    <div class="file-btn"><button id="b-sel">SELECT IMG</button><input type="file" id="img-f" accept="image/*"></div>
+    <div class="file-btn"><button id="b-sel" style="width:100%">SELECT IMAGE</button><input type="file" id="img-f" accept="image/*"></div>
     <div id="status" class="status"></div>
     <div id="crop-wrap"><canvas id="crop-canvas" width="160" height="80"></canvas></div>
     <div id="gif-opts" class="opt-box">
-        <div class="opt-row"><span>Capture Frames:</span><input type="number" id="g-cnt" value="5" min="1" max="15"></div>
-        <div class="opt-row"><span>Skip Steps:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
+        <div class="opt-row"><span>Frames:</span><input type="number" id="g-cnt" value="5" min="1" max="15"></div>
+        <div class="opt-row"><span>Skip:</span><input type="number" id="g-skp" value="1" min="0" max="10"></div>
     </div>
-    <div id="ig-controls" style="display:none;margin-top:10px">
-        <div class="row"><button onclick="z(-0.02)">- ZOOM</button><button onclick="z(0.02)">+ ZOOM</button><button onclick="rot()">ROT</button></div>
-        <button id="b-up" onclick="upl()">UPLOAD</button>
+    <div id="ig-controls" style="display:none;margin-top:5px">
+        <div class="row"><button onclick="z(-0.02)" style="flex:1">-</button><button onclick="z(0.02)" style="flex:1">+</button><button onclick="rot()" style="flex:1">ROT</button><button id="b-up" onclick="upl()" style="flex:2">UPLOAD</button></div>
     </div>
-    <button onclick="wsS('I:clear')" style="margin-top:20px;border-color:#444;color:#666">CLEAR</button>
+    <button onclick="wsS('I:clear')" style="margin-top:10px;border-color:#444;color:#666">CLEAR SCREEN</button>
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
@@ -126,27 +126,27 @@ document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
 document.querySelectorAll('.content').forEach(x=>x.classList.remove('active'));
 el.classList.add('active'); document.getElementById('c-'+t).classList.add('active');
 }
-function uOS(){
-document.getElementById('b-win-os').className=(os=='win'?'toggled':'');
-document.getElementById('b-lin-os').className=(os=='lin'?'toggled':'');
-}
-function mD(m,el){ el.dataset.t=Date.now(); el.dataset.h=setTimeout(()=>{ el.dataset.h=0; el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); },500); }
-function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); el.dataset.h=0; wsS('P:'+m); } }
+function uOS(){ document.getElementById('b-win-os').className=(os=='win'?'toggled':''); document.getElementById('b-lin-os').className=(os=='lin'?'toggled':''); }
+function mD(m,el){ el.dataset.h=setTimeout(()=>{ el.classList.toggle('toggled'); wsS('H:'+m+','+(el.classList.contains('toggled')?'1':'0')); el.dataset.h=0; },500); }
+function mU(m,el){ if(el.dataset.h){ clearTimeout(el.dataset.h); wsS('P:'+m); el.dataset.h=0; } }
 let ta=document.getElementById('ta');
+ta.onkeydown=e=>{
+    if(e.key.startsWith('Arrow')){ e.preventDefault(); wsS('A:'+e.key.toLowerCase()); return; }
+    if(e.ctrlKey && e.key==='Backspace'){ e.preventDefault(); wsS('A:cb'); return; }
+    if(e.key==='Enter'){ e.preventDefault(); wsS('E:1'); return; }
+    if(e.key==='Backspace'){ e.preventDefault(); wsS('B:1'); return; }
+};
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
-ta.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();wsS('E:1');} if(e.key==='Backspace'){e.preventDefault();wsS('B:1');} if(e.key==='Tab'){e.preventDefault();wsS('T:1');} };
 // Trackpad
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0;
-p.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;tapT=Date.now();};
-document.onmouseup=()=>{if(isD&&Date.now()-tapT<200)wsS('C:l');isD=false;};
-p.onmousemove=e=>{if(isD){wsS('M:'+(e.clientX-lX)+','+(e.clientY-lY));lX=e.clientX;lY=e.clientY;}};
-p.ontouchstart=e=>{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;tapT=Date.now();};
-p.ontouchend=e=>{if(isD&&Date.now()-tapT<200)wsS('C:'+(e.touches.length>0?'r':'l'));isD=false;};
-p.ontouchmove=e=>{if(isD){wsS('M:'+Math.round(e.touches[0].clientX-lX)+','+Math.round(e.touches[0].clientY-lY));lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
-// Image logic
-let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0;
-// Comp Canvas for GIF assembly
-let cCvs=document.createElement('canvas'), cCtx=cCvs.getContext('2d');
+function gR(){ return 160 / p.offsetWidth; }
+p.onmousemove=e=>{ let r=gR(); wsS('M:'+Math.round((e.clientX-lX)*r)+','+Math.round((e.clientY-lY)*r)); lX=e.clientX; lY=e.clientY; };
+p.onmouseenter=e=>{ lX=e.clientX; lY=e.clientY; };
+p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); };
+p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS('C:l'); isD=false; };
+p.ontouchmove=e=>{ if(isD){ let r=gR(); wsS('M:'+Math.round((e.touches[0].clientX-lX)*r)+','+Math.round((e.touches[0].clientY-lY)*r)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
+// Image Editor
+let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0,cCvs=document.createElement('canvas'),cCtx=cCvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
     let f=e.target.files[0]; if(!f)return;
     isGif=(f.type==='image/gif');
@@ -167,36 +167,25 @@ function drw(clr, imgOverride){
     ctx.restore();
 }
 function z(v){scale+=v;drw(true);} function rot(){rotation=(rotation+90)%360;drw(true);}
-function gR(){ return 160 / cvs.offsetWidth; }
 cvs.onmousedown=e=>{isD=true;lX=e.clientX;lY=e.clientY;};
-cvs.onmousemove=e=>{if(isD){let r=gR();oX+=(e.clientX-lX)*r;oY+=(e.clientY-lY)*r;lX=e.clientX;lY=e.clientY;drw(true);}};
+cvs.onmousemove=e=>{if(isD){let r=160/cvs.offsetWidth;oX+=(e.clientX-lX)*r;oY+=(e.clientY-lY)*r;lX=e.clientX;lY=e.clientY;drw(true);}};
 cvs.ontouchstart=e=>{if(e.touches.length===2)pD=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);else{isD=true;lX=e.touches[0].clientX;lY=e.touches[0].clientY;}};
-cvs.ontouchmove=e=>{let r=gR();if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw(true);}else if(isD){oX+=(e.touches[0].clientX-lX)*r;oY+=(e.touches[0].clientY-lY)*r;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw(true);}e.preventDefault();};
-function getB(){
-    let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600);
-    for(let j=0;j<12800;j++){
-        let r=d[j*4],g=d[j*4+1],bl=d[j*4+2];
-        let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3);
-        b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF;
-    }
-    return b;
-}
+cvs.ontouchmove=e=>{let r=160/cvs.offsetWidth;if(e.touches.length===2){let d=Math.hypot(e.touches[0].pageX-e.touches[1].pageX,e.touches[0].pageY-e.touches[1].pageY);scale*=(d/pD);pD=d;drw(true);}else if(isD){oX+=(e.touches[0].clientX-lX)*r;oY+=(e.touches[0].clientY-lY)*r;lX=e.touches[0].clientX;lY=e.touches[0].clientY;drw(true);}e.preventDefault();};
 async function upl(){
     let btn=document.getElementById('b-up'); btn.disabled=true;
     try{
         if(isGif){
             wsS('I:gif');
-            let lw = gifBytes[6]|(gifBytes[7]<<8), lh = gifBytes[8]|(gifBytes[9]<<8);
+            let lw=gifBytes[6]|(gifBytes[7]<<8), lh=gifBytes[8]|(gifBytes[9]<<8);
             let hasGCT=(gifBytes[10]&0x80), gctSize=hasGCT?3*Math.pow(2,(gifBytes[10]&7)+1):0;
             let header=gifBytes.slice(0,13+gctSize);
-            cCvs.width = lw; cCvs.height = lh; cCtx.clearRect(0,0,lw,lh);
+            cCvs.width=lw; cCvs.height=lh; cCtx.clearRect(0,0,lw,lh);
             let frames=[], pos=13+gctSize, curF=[];
             while(pos<gifBytes.length && gifBytes[pos]!==0x3B && frames.length<50){
-                let b = gifBytes[pos];
+                let b=gifBytes[pos];
                 if(b===0x21){ let st=pos; pos+=2; while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++; if(gifBytes[st+1]===0xF9) curF.push(gifBytes.slice(st,pos)); }
                 else if(b===0x2C){
-                    let st=pos; let x=gifBytes[pos+1]|(gifBytes[pos+2]<<8), y=gifBytes[pos+3]|(gifBytes[pos+4]<<8);
-                    let w=gifBytes[pos+5]|(gifBytes[pos+6]<<8), h=gifBytes[pos+7]|(gifBytes[pos+8]<<8);
+                    let st=pos, x=gifBytes[pos+1]|(gifBytes[pos+2]<<8), y=gifBytes[pos+3]|(gifBytes[pos+4]<<8), w=gifBytes[pos+5]|(gifBytes[pos+6]<<8), h=gifBytes[pos+7]|(gifBytes[pos+8]<<8);
                     pos+=10; if(gifBytes[pos-1]&0x80) pos+=3*Math.pow(2,(gifBytes[pos-1]&7)+1); pos++;
                     while(pos<gifBytes.length && gifBytes[pos]!==0) pos += gifBytes[pos]+1; pos++;
                     curF.push(gifBytes.slice(st,pos));
@@ -206,25 +195,15 @@ async function upl(){
                     frames.push({blob:URL.createObjectURL(new Blob([f],{type:'image/gif'})), x, y, w, h}); curF=[];
                 } else pos++;
             }
-            let maxF = parseInt(document.getElementById('g-cnt').value)||5, skip = parseInt(document.getElementById('g-skp').value)||0;
-            let sI = 0;
-            for(let i=0; i<frames.length && sI < maxF; i++){
-                let f = frames[i];
-                await new Promise(res=>{
-                    let tmp = new Image(); tmp.onload=()=>{
-                        cCtx.drawImage(tmp, f.x, f.y, f.w, f.h);
-                        if(i % (skip+1) === 0){
-                            drw(true, cCvs); ws.send(getB()); sI++;
-                            document.getElementById('status').innerText='Beam '+sI+'/'+maxF;
-                        } res();
-                    }; tmp.src = f.blob;
-                });
-                if(i % (skip+1) === 0) await new Promise(r=>setTimeout(r,400));
+            let maxF=parseInt(document.getElementById('g-cnt').value)||5, skip=parseInt(document.getElementById('g-skp').value)||0, sI=0;
+            for(let i=0; i<frames.length && sI<maxF; i++){
+                let f=frames[i];
+                await new Promise(res=>{ let tmp=new Image(); tmp.onload=()=>{ cCtx.drawImage(tmp,f.x,f.y,f.w,f.h); if(i%(skip+1)===0){ drw(true,cCvs); let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600); for(let j=0;j<12800;j++){ let r=d[j*4],g=d[j*4+1],bl=d[j*4+2]; let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3); b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF; } ws.send(b); sI++; document.getElementById('status').innerText='Beam '+sI+'/'+maxF; } res(); }; tmp.src=f.blob; });
+                if(i%(skip+1)===0) await new Promise(r=>setTimeout(r,400));
             }
-            document.getElementById('status').innerText='Animated!';
-            drw(true); // Reset to preview
+            document.getElementById('status').innerText='Animated!'; drw(true);
         }else{
-            wsS('I:img'); ws.send(getB()); document.getElementById('status').innerText='Success!';
+            wsS('I:img'); let d=ctx.getImageData(0,0,160,80).data,b=new Uint8Array(25600); for(let j=0;j<12800;j++){ let r=d[j*4],g=d[j*4+1],bl=d[j*4+2]; let rgb=((r&0xF8)<<8)|((g&0xFC)<<3)|(bl>>3); b[j*2]=rgb>>8;b[j*2+1]=rgb&0xFF; } ws.send(b); document.getElementById('status').innerText='Success!';
         }
     }catch(e){console.error(e);}
     btn.disabled=false;
@@ -291,7 +270,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { 
             String act = msg.substring(2); Keyboard.releaseAll();
-            if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
+            if(act=="arrowup") Keyboard.write(KEY_UP_ARROW);
+            else if(act=="arrowdown") Keyboard.write(KEY_DOWN_ARROW);
+            else if(act=="arrowleft") Keyboard.write(KEY_LEFT_ARROW);
+            else if(act=="arrowright") Keyboard.write(KEY_RIGHT_ARROW);
+            else if(act=="cb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_BACKSPACE); delay(50); Keyboard.releaseAll(); }
+            else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
             setLastKey(act); 
