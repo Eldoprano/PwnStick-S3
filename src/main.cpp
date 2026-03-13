@@ -64,31 +64,31 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-<title>PwnStick v45</title>
+<title>PwnStick v46</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-* { user-select:none; -webkit-user-select:none; }
-body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+* { user-select:none; -webkit-user-select:none; box-sizing:border-box; }
+body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; height:100dvh; overflow:hidden; display:flex; flex-direction:column; }
 .tabs { display:flex; border-bottom:1px solid #0f0; background:#0a0a0a; flex-shrink:0; }
 .tab { flex:1; padding:12px; cursor:pointer; font-weight:bold; border-right:1px solid #111; }
 .tab.active { background:#0f0; color:#000; }
-.content { padding:8px; display:none; flex:1; overflow:hidden; box-sizing:border-box; flex-direction:column; gap:5px; }
+.content { padding:8px; display:none; flex:1; overflow:hidden; flex-direction:column; gap:5px; min-height:0; }
 .content.active { display:flex; }
-button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; font-weight:bold; font-size:13px; border-radius:4px; transition:0.1s; flex:1; }
+button { background:#000; color:#0f0; border:1px solid #0f0; padding:10px; font-weight:bold; font-size:13px; border-radius:4px; transition:0.1s; flex:1; flex-shrink:0; }
 button:active { background:#0f0; color:#000; }
-button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0 10px #0f0; }
+button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0 0-10px #0f0; }
 .row { display:flex; gap:5px; width:100%; flex-shrink:0; }
-textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; box-sizing:border-box; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
-#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
+#pad-wrap { flex:1; display:flex; flex-direction:column; min-height:80px; }
 #pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; touch-action:none; }
 .click-row { display:flex; height:45px; gap:2px; flex-shrink:0; }
 .click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
 .click-btn:active { background:#111; border-color:#0f0; }
-#crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; }
+#crop-wrap { width:100%; max-width:600px; border:1px solid #333; margin:0 auto; background:#050505; position:relative; overflow:hidden; aspect-ratio:160/80; flex-shrink:1; }
 #crop-canvas { display:block; width:100%; height:100%; background:#111; image-rendering:pixelated; cursor:move; }
 .file-btn { position:relative; overflow:hidden; width:100%; flex-shrink:0; }
 #img-f { position:absolute; left:0; top:0; opacity:0; width:100%; height:100%; cursor:pointer; }
-.status { color:#888; font-size:11px; height:14px; }
+.status { color:#888; font-size:11px; height:14px; flex-shrink:0; }
 .opt-box { background:#111; border:1px solid #333; padding:8px; display:none; flex-direction:column; gap:4px; text-align:left; font-size:11px; flex-shrink:0; }
 .opt-row { display:flex; justify-content:space-between; align-items:center; }
 input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:45px; padding:3px; }
