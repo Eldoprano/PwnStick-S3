@@ -6,6 +6,7 @@
 #include "USB.h"
 #include "USBHIDKeyboard.h"
 #include "USBHIDMouse.h"
+#include "USBHIDConsumerControl.h"
 #include <FastLED.h>
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -33,6 +34,7 @@ inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 CRGB leds[NUM_LEDS];
 USBHIDKeyboard Keyboard;
 USBHIDMouse Mouse;
+USBHIDConsumerControl Media;
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 DNSServer dnsServer;
@@ -103,6 +105,7 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
     <div class="modal-header">
         <button id="m-win-os" class="toggled" onclick="os='win';wsS('O:win');uM()">WIN</button>
         <button id="m-lin-os" onclick="os='lin';wsS('O:lin');uM()">LINUX</button>
+        <button id="m-med-os" onclick="os='med';wsS('O:med');uM()">MEDIA</button>
     </div>
     <div id="m-list" class="modal-body"></div>
     <button class="modal-close" onclick="document.getElementById('modal').style.display='none'">CLOSE</button>
@@ -151,6 +154,18 @@ const mcs = {
         {n:'Rickroll', a:'rick'}, {n:'Sys Recon', a:'lin_recon'}, 
         {n:'Net Info', a:'lin_net'}, {n:'WiFi Pass', a:'lin_wifi'},
         {n:'Fake Update', a:'fake_upd'}
+    ],
+    med: [
+        {n:'Vol Up', a:'m_vup'}, {n:'Vol Down', a:'m_vdn'}, {n:'Mute', a:'m_mute'},
+        {n:'Play/Pause', a:'m_pp'}, {n:'Media Stop', a:'m_stop'},
+        {n:'Next Song', a:'m_next'}, {n:'Prev Song', a:'m_prev'},
+        {n:'Bright Up', a:'m_bup'}, {n:'Bright Down', a:'m_bdn'},
+        {n:'Calculator', a:'m_calc'}, {n:'Email', a:'m_mail'},
+        {n:'Airplane', a:'m_air'}, {n:'Sleep', a:'m_sleep'}, {n:'Power', a:'m_power'},
+        {n:'Browser', a:'m_web'}, {n:'Web Search', a:'m_srch'}, 
+        {n:'Web Home', a:'m_home'}, {n:'Web Back', a:'m_back'}, 
+        {n:'Web Fwd', a:'m_fwd'}, {n:'Web Refresh', a:'m_refr'},
+        {n:'Bookmarks', a:'m_book'}, {n:'Screenshot', a:'m_scr'}
     ]
 };
 function wsS(m){if(ws.readyState===1)ws.send(m);}
@@ -163,10 +178,11 @@ function oM(){ document.getElementById('modal').style.display='flex'; uM(); }
 function uM(){
     document.getElementById('m-win-os').className=(os=='win'?'toggled':'');
     document.getElementById('m-lin-os').className=(os=='lin'?'toggled':'');
+    document.getElementById('m-med-os').className=(os=='med'?'toggled':'');
     let l=document.getElementById('m-list'); l.innerHTML='';
     mcs[os].forEach(m=>{
         let b=document.createElement('button'); b.innerText=m.n; 
-        b.onclick=()=>{ wsS('A:'+m.a); document.getElementById('modal').style.display='none'; };
+        b.onclick=()=>{ wsS('A:'+m.a); };
         l.appendChild(b);
     });
 }
@@ -337,6 +353,31 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
             else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
             else if(act=="snake") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd /c \"ssh snakes.run\""); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.println("ssh snakes.run"); } }
+            else if(act=="m_vup") { Media.press(CONSUMER_CONTROL_VOLUME_INCREMENT); Media.release(); }
+            else if(act=="m_vdn") { Media.press(CONSUMER_CONTROL_VOLUME_DECREMENT); Media.release(); }
+            else if(act=="m_mute") { Media.press(CONSUMER_CONTROL_MUTE); Media.release(); }
+            else if(act=="m_pp") { Media.press(CONSUMER_CONTROL_PLAY_PAUSE); Media.release(); }
+            else if(act=="m_next") { Media.press(CONSUMER_CONTROL_SCAN_NEXT); Media.release(); }
+            else if(act=="m_prev") { Media.press(CONSUMER_CONTROL_SCAN_PREVIOUS); Media.release(); }
+            else if(act=="m_bup") { Media.press(CONSUMER_CONTROL_BRIGHTNESS_INCREMENT); Media.release(); }
+            else if(act=="m_bdn") { Media.press(CONSUMER_CONTROL_BRIGHTNESS_DECREMENT); Media.release(); }
+            else if(act=="m_calc") { Media.press(CONSUMER_CONTROL_CALCULATOR); Media.release(); }
+            else if(act=="m_mail") { Media.press(CONSUMER_CONTROL_EMAIL_READER); Media.release(); }
+            else if(act=="m_air") { Media.press(CONSUMER_CONTROL_WIRELESS_RADIO_CONTROLS); Media.release(); }
+            else if(act=="m_sleep") { Media.press(CONSUMER_CONTROL_SLEEP); Media.release(); }
+            else if(act=="m_power") { Media.press(CONSUMER_CONTROL_POWER); Media.release(); }
+            else if(act=="m_web") { Media.press(CONSUMER_CONTROL_LOCAL_BROWSER); Media.release(); }
+            else if(act=="m_stop") { Media.press(CONSUMER_CONTROL_STOP); Media.release(); }
+            else if(act=="m_srch") { Media.press(CONSUMER_CONTROL_SEARCH); Media.release(); }
+            else if(act=="m_home") { Media.press(CONSUMER_CONTROL_HOME); Media.release(); }
+            else if(act=="m_back") { Media.press(CONSUMER_CONTROL_BACK); Media.release(); }
+            else if(act=="m_fwd") { Media.press(CONSUMER_CONTROL_FORWARD); Media.release(); }
+            else if(act=="m_refr") { Media.press(CONSUMER_CONTROL_REFRESH); Media.release(); }
+            else if(act=="m_book") { Media.press(CONSUMER_CONTROL_BOOKMARKS); Media.release(); }
+            else if(act=="m_scr") { 
+                if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('s'); delay(100); Keyboard.releaseAll(); }
+                else { Keyboard.pressRaw(HID_KEY_PRINT_SCREEN); delay(100); Keyboard.releaseAll(); }
+            }
             setLastKey(act); 
         }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
@@ -439,7 +480,7 @@ void setup() {
     leds[0] = CRGB::Red; FastLED.show();
     WiFi.mode(WIFI_AP); WiFi.softAP(ssid);
     dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
-    Keyboard.begin(); Mouse.begin(); USB.begin(); setup_lcd();
+    Keyboard.begin(); Mouse.begin(); Media.begin(); USB.begin(); setup_lcd();
     for(int i=0; i<15; i++) gif_storage[i] = NULL;
     ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
         if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
