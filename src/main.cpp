@@ -194,7 +194,7 @@ const mcs = {
     med: [
         {n:'Prev Song', a:'m_prev'}, {n:'Play/Pause', a:'m_pp'}, {n:'Next Song', a:'m_next'},
         {n:'Vol Down', a:'m_vdn'}, {n:'Mute', a:'m_mute'}, {n:'Vol Up', a:'m_vup'},
-        {n:'Bright Down', a:'m_bdn'}, {n:'Media Stop', a:'m_stop'}, {n:'Bright Up', a:'m_bup'},
+        {n:'Bright Down', a:'m_bdn'}, {n:'Bright Up', a:'m_bup'}, {n:'Media Stop', a:'m_stop'},
         {n:'Web Back', a:'m_back'}, {n:'Web Home', a:'m_home'}, {n:'Web Fwd', a:'m_fwd'},
         {n:'Browser', a:'m_web'}, {n:'Web Search', a:'m_srch'}, {n:'Bookmarks', a:'m_book'},
         {n:'Web Refresh', a:'m_refr'}, {n:'Calculator', a:'m_calc'}, {n:'Email', a:'m_mail'},
@@ -213,6 +213,7 @@ function uM(){
     document.getElementById('m-lin-os').className=(os=='lin'?'toggled':'');
     document.getElementById('m-med-os').className=(os=='med'?'toggled':'');
     let l=document.getElementById('m-list'); l.innerHTML='';
+    l.style.gridTemplateColumns=(os=='med')?'1fr 1fr 1fr':'1fr 1fr';
     mcs[os].forEach(m=>{
         let b=document.createElement('button'); b.innerText=m.n; 
         b.onclick=()=>{ wsS('A:'+m.a); };
