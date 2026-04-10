@@ -192,18 +192,15 @@ const mcs = {
         {n:'Fake Update', a:'fake_upd'}
     ],
     med: [
-        {n:'Vol Up', a:'m_vup'}, {n:'Vol Down', a:'m_vdn'}, {n:'Mute', a:'m_mute'},
-        {n:'Play/Pause', a:'m_pp'}, {n:'Media Stop', a:'m_stop'},
-        {n:'Next Song', a:'m_next'}, {n:'Prev Song', a:'m_prev'},
-        {n:'Bright Up', a:'m_bup'}, {n:'Bright Down', a:'m_bdn'},
-        {n:'Calculator', a:'m_calc'}, {n:'Email', a:'m_mail'},
+        {n:'Prev Song', a:'m_prev'}, {n:'Play/Pause', a:'m_pp'}, {n:'Next Song', a:'m_next'},
+        {n:'Vol Down', a:'m_vdn'}, {n:'Mute', a:'m_mute'}, {n:'Vol Up', a:'m_vup'},
+        {n:'Bright Down', a:'m_bdn'}, {n:'Media Stop', a:'m_stop'}, {n:'Bright Up', a:'m_bup'},
+        {n:'Web Back', a:'m_back'}, {n:'Web Home', a:'m_home'}, {n:'Web Fwd', a:'m_fwd'},
+        {n:'Browser', a:'m_web'}, {n:'Web Search', a:'m_srch'}, {n:'Bookmarks', a:'m_book'},
+        {n:'Web Refresh', a:'m_refr'}, {n:'Calculator', a:'m_calc'}, {n:'Email', a:'m_mail'},
         {n:'Airplane', a:'m_air'}, {n:'Sleep', a:'m_sleep'}, {n:'Power', a:'m_power'},
-        {n:'Browser', a:'m_web'}, {n:'Web Search', a:'m_srch'}, 
-        {n:'Web Home', a:'m_home'}, {n:'Web Back', a:'m_back'}, 
-        {n:'Web Fwd', a:'m_fwd'}, {n:'Web Refresh', a:'m_refr'},
-        {n:'Bookmarks', a:'m_book'}, {n:'Screenshot', a:'m_scr'}
-    ]
-};
+        {n:'Screenshot', a:'m_scr'}
+    ]};
 function wsS(m){if(ws.readyState===1)ws.send(m);}
 function sT(t,el){
 document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
