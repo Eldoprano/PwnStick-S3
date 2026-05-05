@@ -3,6 +3,7 @@
 #include "USBHIDKeyboard.h"
 #include "USBHIDMouse.h"
 #include "USBHIDConsumerControl.h"
+#include <Preferences.h>
 
 static USBHIDKeyboard usbKeyboard;
 static USBHIDMouse usbMouse;
@@ -12,6 +13,27 @@ void UsbHidDriver::begin() {
     usbKeyboard.begin();
     usbMouse.begin();
     usbMedia.begin();
+
+    // USB VID/PID spoofing from Preferences
+    Preferences prefs;
+    prefs.begin("pwnstick", true);
+    String vid = prefs.getString("vid", "gen");
+    prefs.end();
+
+    if (vid == "apple") {
+        USB.VID(0x05AC); USB.PID(0x0267);
+        USB.manufacturerName("Apple Inc.");
+        USB.productName("Apple Keyboard");
+    } else if (vid == "dell") {
+        USB.VID(0x413C); USB.PID(0x2113);
+        USB.manufacturerName("Dell Inc.");
+        USB.productName("Dell USB Keyboard");
+    } else if (vid == "logi") {
+        USB.VID(0x046D); USB.PID(0xC31C);
+        USB.manufacturerName("Logitech");
+        USB.productName("USB Keyboard");
+    }
+
     USB.begin();
 }
 void UsbHidDriver::print(const String &s) { usbKeyboard.print(s); }

