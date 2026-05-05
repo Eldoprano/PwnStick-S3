@@ -952,14 +952,5 @@ void loop() {
         lastFrame = millis();
         updateDisplay();
         updateLed();
-        // Push status bar update to all clients
-        static uint32_t lastSB = 0;
-        if (millis() - lastSB > 2000) {
-            lastSB = millis();
-            if (ws.count() > 0) {
-                String sb = String(ws.count()) + "," + (sdAvailable?"1":"0");
-                ws.textAll("SBUPD:" + sb);
-            }
-        }
     }
 }
