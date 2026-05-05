@@ -810,18 +810,6 @@ void setup() {
     FastLED.addLeds<WS2812, LED_DI_PIN, GRB>(leds, NUM_LEDS);
     leds[0] = CRGB::Red; FastLED.show();
 
-    // SD card
-    SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
-    if (SD_MMC.begin("/sdcard", false)) {
-        sdAvailable = true;
-        SD_MMC.mkdir("/payloads");
-        SD_MMC.mkdir("/images");
-        SD_MMC.mkdir("/evil-portal");
-        Serial.println("SD card mounted");
-    } else {
-        Serial.println("SD card not found");
-    }
-
     // USB VID/PID (must be before USB.begin inside usbDriver)
     {
         Preferences prefs; prefs.begin("pwnstick", true);
@@ -908,6 +896,18 @@ void setup() {
     server.begin();
 
     leds[0] = CRGB::Green; FastLED.show();
+
+    // SD card init AFTER server is up so WiFi stays responsive during potentially slow init
+    SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0, SD_D1, SD_D2, SD_D3);
+    if (SD_MMC.begin("/sdcard", false)) {
+        sdAvailable = true;
+        SD_MMC.mkdir("/payloads");
+        SD_MMC.mkdir("/images");
+        SD_MMC.mkdir("/evil-portal");
+        Serial.println("SD card mounted");
+    } else {
+        Serial.println("SD card not found");
+    }
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
